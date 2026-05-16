@@ -15,6 +15,8 @@ class EpidemicModel(Model):
         population=100
     ):
         super().__init__()
+        self.width = width
+        self.height = height
         self.grid = MultiGrid(width, height, torus=True)
 
         self.schedule = RandomActivation(self)

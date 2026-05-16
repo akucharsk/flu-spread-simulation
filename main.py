@@ -12,5 +12,5 @@ model = EpidemicModel(population=1000, width=40, height=40)
 #     )
 
 #     print(f"Step {i}: {infected} infected")
-visualizer = Visualizer(model, fps=10)
+visualizer = Visualizer(model, fps=10, radius=10)
 visualizer.run()
