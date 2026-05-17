@@ -1,6 +1,5 @@
 from mesa import Model
 from mesa.space import MultiGrid
-from mesa.time import RandomActivation
 
 from agents import PersonAgent
 import random
@@ -18,8 +17,6 @@ class EpidemicModel(Model):
         self.width = width
         self.height = height
         self.grid = MultiGrid(width, height, torus=True)
-
-        self.schedule = RandomActivation(self)
 
         self.running = True
 
@@ -54,16 +51,14 @@ class EpidemicModel(Model):
                 mobility=mobility_map[agent_type]
             )
 
-            self.schedule.add(agent)
-
             x = random.randrange(self.grid.width)
             y = random.randrange(self.grid.height)
 
             self.grid.place_agent(agent, (x, y))
 
         # Infect one initial agent
-        patient_zero = random.choice(self.schedule.agents)
+        patient_zero = random.choice(list(self.agents))
         patient_zero.health_state = patient_zero.health_state.INFECTIOUS
 
     def step(self):
-        self.schedule.step()
+        self.agents.shuffle_do("step")
