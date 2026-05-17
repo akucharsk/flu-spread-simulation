@@ -1,2 +1,5 @@
 mesa[rec]
 pygame
+pytest
+pytest-cov
+flake8
