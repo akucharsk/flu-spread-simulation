@@ -1,3 +1,4 @@
+from states import CellType
 from mesa.space import MultiGrid
 import random
 
@@ -19,21 +20,21 @@ def build_city_grid(model, city_map):
     grid = MultiGrid(width, height, torus=False)
 
     model.cell_types = {
-        "1": "household",
-        "2": "workplace",
-        "3": "public",
-        "0": "empty",
+        "1": CellType.HOUSEHOLD,
+        "2": CellType.WORKPLACE,
+        "3": CellType.PUBLIC_SPACE,
+        "0": CellType.DEFAULT,
     }
     model.cell_type_ids = {
         t: id for id, t in model.cell_types.items()
     }
 
-    model.location_types = {}
+    model.location_data = {}
 
     for y, row in enumerate(grid_data):
         for x, cell in enumerate(row):
             cell_type = model.cell_types[cell]
 
-            model.location_types[(x, y)] = cell_type
+            model.location_data[(x, y)] = (cell_type, 0)
 
     return grid

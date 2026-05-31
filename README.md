@@ -65,6 +65,31 @@ MAX_TRANSMISSION_DISTANCE = 5             # Cells for spatial transmission
 DISTANCE_DECAY_FUNCTION = "linear"        # Linear probability decay
 ```
 
+## ⚙️ Configuration (`config.json`)
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `cityMapPath` | string | Path to the city map text file (cell codes: `0`=default, `1`=household, `2`=workplace, `3`=public space) |
+| `population` | int | Number of agents to simulate |
+| `steps` | int \| null | Steps to run headless; `null` launches the interactive visualizer |
+| `figsize` | [w, h] | Visualizer window size in inches |
+| `agentSize` | int | Rendered agent dot size |
+| `startTime` | float | Starting time of day in 24 h format (e.g. `10` = 10:00) |
+| `timestep` | float | Hours advanced per simulation step (e.g. `0.1`) |
+
+Example:
+```json
+{
+  "cityMapPath": "city1.txt",
+  "population": 10000,
+  "steps": null,
+  "figsize": [20, 20],
+  "agentSize": 10,
+  "startTime": 10,
+  "timestep": 0.1
+}
+```
+
 ## 🚀 Quick Start
 
 ```bash

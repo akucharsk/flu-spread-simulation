@@ -17,6 +17,11 @@ class AgentParameters:
     mobility: float  # Probability of moving per step
     infection_rate: float  # Base infection probability (same cell)
     
+@dataclass
+class AgentWorkTime:
+    start: float
+    end: float
+    
 
 # Agent type parameters configuration
 AGENT_CONFIG = {

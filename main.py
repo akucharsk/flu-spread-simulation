@@ -1,34 +1,29 @@
-import sys
-import argparse
+import json
+
+from mesa.visualization import SolaraViz
+from mesa_visualizer import MesaVisualizer
 from model import EpidemicModel
-from visualization import Visualizer
 from states import HealthState
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Flu Spread Simulation')
-    parser.add_argument('--steps', type=int, default=None,
-                        help='Run simulation for N steps without visualization')
-    parser.add_argument('--population', type=int, default=1000,
-                        help='Number of agents (default: 1000)')
-    parser.add_argument('--width', type=int, default=40,
-                        help='Grid width (default: 40)')
-    parser.add_argument('--height', type=int, default=40,
-                        help='Grid height (default: 40)')
-    parser.add_argument('--city-map', type=str, default=None,
-                        help='Path to city map file', required=True)
+    with open("config.json") as file:
+        config = json.load(file)
     
-    args = parser.parse_args()
+    model = EpidemicModel(
+        population=config["population"],
+        city_map_path=config["cityMapPath"],
+        time_of_day=config.get("startTime", 10),
+        timestep=config.get("timestep", 0.5),
+    )
     
-    model = EpidemicModel(population=args.population, width=args.width, height=args.height)
-    
-    if args.steps:
+    if config.get("steps"):
         # Run simulation for N steps without visualization
-        print(f"Running simulation for {args.steps} steps...")
-        for i in range(args.steps):
+        print(f"Running simulation for {config['steps']} steps...")
+        for i in range(config["steps"]):
             model.step()
             
-            if (i + 1) % max(1, args.steps // 10) == 0:
+            if (i + 1) % max(1, config["steps"] // 10) == 0:
                 infected = sum(
                     1 for agent in model.agents
                     if agent.health_state == HealthState.INFECTIOUS
@@ -46,9 +41,16 @@ def main():
         print("✓ Simulation completed successfully")
     else:
         # Run with visualization
-        visualizer = Visualizer(model, fps=10, radius=10)
-        visualizer.run()
+        visualizer = MesaVisualizer(
+            model=model,
+            figsize=tuple(config.get("figsize", (12, 9))),
+            agent_size=config.get("agentSize", 20)
+        )
+        return visualizer
 
 
 if __name__ == "__main__":
-    main()
+    visualizer = main()
+    if visualizer:
+        page = visualizer.run()
+        page

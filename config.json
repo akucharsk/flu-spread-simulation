@@ -1,0 +1,9 @@
+{
+  "cityMapPath": "city1.txt",
+  "population": 10000,
+  "steps": null,
+  "figsize": [20, 20],
+  "agentSize": 10,
+  "startTime": 10,
+  "timestep": 0.1
+}
