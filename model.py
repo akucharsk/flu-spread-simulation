@@ -1,31 +1,34 @@
 from mesa import Model
-from mesa.space import MultiGrid
+from mesa.space import MultiGrid, PropertyLayer
 
 from agents import PersonAgent
 from agent_types import AgentType, AGENT_CONFIG
 import random
 
+from city_utils import build_city_grid, load_city_map
 
 class EpidemicModel(Model):
 
     def __init__(
         self,
-        width=20,
-        height=20,
-        population=100,
-        avg_household_size=3
+        city_map_path="city1.txt",
+        population=2000,
+        avg_household_size=3,
+        time_of_day=10, # 10:00
+        timestep=0.5 # hour
     ):
         super().__init__()
-        self.width = width
-        self.height = height
-        self.grid = MultiGrid(width, height, torus=True)
+        self.grid = build_city_grid(self, load_city_map(city_map_path))
+        self.width = self.grid.width
+        self.height = self.grid.height
         self.avg_household_size = avg_household_size
 
         self.running = True
+        self.time_of_day = time_of_day
+        self.timestep = timestep
 
         # Create agents
         agents_list = []
-        households = []  # List to track household groups
         
         for i in range(population):
             agent_type = random.choice(list(AgentType))
@@ -40,10 +43,7 @@ class EpidemicModel(Model):
             
             agents_list.append(agent)
             
-            # Randomly place agent on grid
-            x = random.randrange(self.grid.width)
-            y = random.randrange(self.grid.height)
-            self.grid.place_agent(agent, (x, y))
+            self.place_agent_in_city(agent)
 
         # Create family groups (social network - static links)
         self._create_households(agents_list)
@@ -51,6 +51,17 @@ class EpidemicModel(Model):
         # Infect one initial agent
         patient_zero = random.choice(agents_list)
         patient_zero.health_state = patient_zero.health_state.INFECTIOUS
+        
+        property_layer = PropertyLayer(
+            "cell_type",
+            self.width,
+            self.height,
+            "0"
+        )
+        
+        for pos, t in self.location_types.items():
+            property_layer.set_cell(pos, self.cell_type_ids[t])
+        self.grid.add_property_layer(property_layer)
 
     def _create_households(self, agents_list):
         """
@@ -76,6 +87,34 @@ class EpidemicModel(Model):
                 agent.family_members = [a for a in household if a != agent]
             
             household_id += 1
+            
+    def place_agent_in_city(self, agent):
+        household_cells = [
+            pos for pos, t in self.location_types.items()
+            if t == "household"
+        ]
+
+        workplace_cells = [
+            pos for pos, t in self.location_types.items()
+            if t == "workplace"
+        ]
+
+        public_cells = [
+            pos for pos, t in self.location_types.items()
+            if t == "public"
+        ]
+
+        r = random.random()
+
+        if r < 0.6:
+            pos = random.choice(household_cells)
+        elif r < 0.9:
+            pos = random.choice(workplace_cells)
+        else:
+            pos = random.choice(public_cells)
+
+        self.grid.place_agent(agent, pos)
+    
 
     def step(self):
         self.agents.shuffle_do("step")

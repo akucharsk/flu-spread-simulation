@@ -15,6 +15,8 @@ def main():
                         help='Grid width (default: 40)')
     parser.add_argument('--height', type=int, default=40,
                         help='Grid height (default: 40)')
+    parser.add_argument('--city-map', type=str, default=None,
+                        help='Path to city map file', required=True)
     
     args = parser.parse_args()
     
