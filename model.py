@@ -177,6 +177,8 @@ class EpidemicModel(Model):
     def update_time(self):
         self.time_of_day += self.timestep
         print(f"[SYSTEM]: TIME IS: {self.time_of_day}")
+        if self.time_of_day >= 24:
+            self.time_of_day -= 24
         
     def update_agents_based_on_time(self):
         for agent in self.agents:

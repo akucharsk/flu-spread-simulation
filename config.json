@@ -1,5 +1,5 @@
 {
-  "cityMapPath": "city1.txt",
+  "cityMapPath": "city.txt",
   "population": 10000,
   "steps": null,
   "figsize": [20, 20],
