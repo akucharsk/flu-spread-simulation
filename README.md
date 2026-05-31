@@ -65,31 +65,62 @@ MAX_TRANSMISSION_DISTANCE = 5             # Cells for spatial transmission
 DISTANCE_DECAY_FUNCTION = "linear"        # Linear probability decay
 ```
 
+## ⚙️ Configuration (`config.json`)
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `cityMapPath` | string | Path to the city map text file (cell codes: `0`=default, `1`=household, `2`=workplace, `3`=public space) |
+| `population` | int | Number of agents to simulate |
+| `steps` | int \| null | Steps to run headless; `null` launches the interactive visualizer |
+| `figsize` | [w, h] | Visualizer window size in inches |
+| `agentSize` | int | Rendered agent dot size |
+| `startTime` | float | Starting time of day in 24 h format (e.g. `10` = 10:00) |
+| `timestep` | float | Hours advanced per simulation step (e.g. `0.1`) |
+
+Example:
+```json
+{
+  "cityMapPath": "city1.txt",
+  "population": 10000,
+  "steps": null,
+  "figsize": [20, 20],
+  "agentSize": 10,
+  "startTime": 10,
+  "timestep": 0.1
+}
+```
+
 ## 🚀 Quick Start
 
 ```bash
 # Install dependencies
 pip install -r requirements.txt
 
-# Run simulation
-python main.py
+# Run headless simulation (prints progress to stdout)
+python main_simulation.py --steps 100
+
+# Run with interactive Solara visualization
+python main_visualization.py
 ```
 
 ## 📁 Project Structure
 
 ```
-├── agent_types.py      # Agent types and configuration (STUDENT, WORKER, CHILDREN, SENIOR, HEALTHCARE)
-├── agents.py           # PersonAgent implementation with disease logic
-├── model.py            # EpidemicModel - grid, households, initialization
-├── states.py           # HealthState enum (SUSCEPTIBLE, EXPOSED, INFECTIOUS, RECOVERED)
-├── main.py             # Entry point for simulation
-├── drawer.py           # Visualization rendering
-├── visualization.py    # Visualization setup
-├── requirements.txt    # Python dependencies
-└── tests/              # Unit and functional tests
+├── agent_types.py          # Agent types and configuration (STUDENT, WORKER, CHILDREN, SENIOR, HEALTHCARE)
+├── agents.py               # PersonAgent implementation with disease logic
+├── model.py                # EpidemicModel - grid, households, initialization
+├── states.py               # HealthState enum (SUSCEPTIBLE, EXPOSED, INFECTIOUS, RECOVERED)
+├── main_simulation.py      # Headless entry point  (python main_simulation.py --steps N)
+├── main_visualization.py   # Interactive entry point (python main_visualization.py)
+├── mesa_visualizer.py      # Solara/Mesa visualization renderer
+├── city_utils.py           # City map loading and grid construction
+├── config.json             # Default simulation configuration
+├── requirements.txt        # Python dependencies
+└── tests/                  # Unit and functional tests
     ├── test_transmission.py
     ├── test_agents.py
-    └── test_model.py
+    ├── test_model.py
+    └── test_city.txt       # Minimal city map fixture used by tests
 ```
 
 ## 🔄 Agent Behavior (Per Step)

@@ -1,12 +1,13 @@
 from mesa import Agent
-from states import HealthState
+from states import CellType, HealthState
 from agent_types import (
     FAMILY_INTERACTION_MULTIPLIER,
-    MAX_TRANSMISSION_DISTANCE
+    MAX_TRANSMISSION_DISTANCE,
+    AgentType,
+    AgentWorkTime
 )
 import random
 import math
-
 
 class PersonAgent(Agent):
 
@@ -16,6 +17,7 @@ class PersonAgent(Agent):
         agent_type,
         infection_rate,
         mobility,
+        work_time: AgentWorkTime = AgentWorkTime(9, 17)
     ):
         super().__init__(model)
 
@@ -30,6 +32,10 @@ class PersonAgent(Agent):
         # Social network connections
         self.family_members = []  # Static links - family/housemates
         self.household_id = None  # Identifies which household they belong to
+        self.workplace_id = None
+        
+        self.__target_destination = CellType.DEFAULT
+        self.work_time = work_time if self.agent_type in [AgentType.WORKER, AgentType.HEALTHCARE] else None
         
     @property
     def x(self):
@@ -38,6 +44,17 @@ class PersonAgent(Agent):
     @property
     def y(self):
         return self.pos[1]
+    
+    @property
+    def target_destination(self):
+        return self.__target_destination
+    
+    @target_destination.setter
+    def target_destination(self, value):
+        if value not in [CellType.HOUSEHOLD, CellType.PUBLIC_SPACE, CellType.WORKPLACE]:
+            self.__target_destination = CellType.DEFAULT
+        else:
+            self.__target_destination = value
 
     def get_distance(self, pos1, pos2):
         """
@@ -70,15 +87,40 @@ class PersonAgent(Agent):
             base_probability = min(1.0, base_probability * FAMILY_INTERACTION_MULTIPLIER)
         
         return base_probability * self.infection_rate
-
-    def move(self):
+    
+    def get_allowed_neighbors(self):
         neighbors = self.model.grid.get_neighborhood(
             self.pos,
             moore=True,
-            include_center=False
+            include_center=True
         )
 
-        new_position = random.choice(neighbors)
+        def is_allowed_position(pos):
+            (type, id) = self.model.location_data[pos]
+            if type in [CellType.PUBLIC_SPACE, CellType.DEFAULT]:
+                return True
+            if type == CellType.HOUSEHOLD:
+                return id == self.household_id
+            return id == self.workplace_id
+        
+        data = [
+            pos for pos in neighbors
+            if is_allowed_position(pos)
+        ]
+        return [self.pos] if len(data) == 0 else data
+    
+    def get_optimal_neighbor(self, neighbors, target_pos):
+        return min(neighbors, key=lambda pos: self.get_distance(pos, target_pos))
+
+    def move(self):
+        neighbors = self.get_allowed_neighbors()
+        new_position = self.pos
+        if self.target_destination in [CellType.DEFAULT, CellType.PUBLIC_SPACE]: # TODO: add separate logic for going to public spaces
+            new_position = random.choice(neighbors)
+        else:
+            id = self.household_id if self.target_destination == CellType.HOUSEHOLD else self.workplace_id
+            destination = self.model.get_cell_position_by_id(id, self.target_destination)
+            new_position = self.get_optimal_neighbor(neighbors, destination)
         self.model.grid.move_agent(self, new_position)
 
     def interact(self):
