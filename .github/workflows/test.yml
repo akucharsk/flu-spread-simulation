@@ -36,6 +36,7 @@ jobs:
 
     - name: Run basic simulation test
       run: |
+        python cli/create_city_map.py --output city.txt
         python main_simulation.py --steps 5
         echo "✓ Simulation runs successfully"
 
@@ -45,6 +46,7 @@ jobs:
 
     - name: Verify imports and syntax
       run: |
+        python cli/create_city_map.py --output city.txt
         python -m py_compile agent_types.py
         python -m py_compile agents.py
         python -m py_compile model.py
