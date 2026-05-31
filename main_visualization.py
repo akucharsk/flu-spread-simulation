@@ -22,9 +22,10 @@ def main():
         figsize=tuple(config.get("figsize", (12, 9))),
         agent_size=config.get("agentSize", 20),
     )
-    page = visualizer.run()
-    page
+    return visualizer
 
 
 if __name__ == "__main__":
-    main()
+    visualizer = main()
+    page = visualizer.run()
+    page
