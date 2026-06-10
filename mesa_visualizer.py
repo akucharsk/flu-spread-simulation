@@ -367,6 +367,9 @@ class MesaVisualizer:
                 .simulation-main { padding: 16px; }
                 .visualization-card { margin-top: 22px; }
 
+                .sidebar-card-compact {
+                    margin-bottom: 8px !important;
+                }
                 .sidebar-card-compact .v-card__title {
                     padding: 12px 14px 0 !important;
                 }
