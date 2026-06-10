@@ -16,6 +16,7 @@ def main():
     model = EpidemicModel(
         population=config["population"],
         city_map_path=config["cityMapPath"],
+        city_map_preset=config.get("cityMapPreset"),
         time_of_day=config.get("startTime", 10),
         timestep=config.get("timestep", 0.5),
         verbose=config.get("verbose", False),

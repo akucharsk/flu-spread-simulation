@@ -8,6 +8,7 @@ from agent_types import AgentType, AGENT_CONFIG
 import random
 
 from city_utils import build_city_grid, load_city_map
+from map_presets import get_map_label, resolve_city_map_path
 from states import CellType, HealthState
 
 
@@ -24,6 +25,7 @@ class EpidemicModel(Model):
     def __init__(
         self,
         city_map_path="tests/test_city.txt",
+        city_map_preset=None,
         population=2000,
         avg_household_size=3,
         time_of_day=10, # 10:00
@@ -32,7 +34,11 @@ class EpidemicModel(Model):
     ):
         super().__init__()
         self.location_data = {}
-        self.grid = build_city_grid(self, load_city_map(city_map_path))
+        self.city_map_preset = city_map_preset
+        self.city_map_path = resolve_city_map_path(city_map_path, city_map_preset)
+        self.map_name = get_map_label(self.city_map_preset, self.city_map_path)
+
+        self.grid = build_city_grid(self, load_city_map(self.city_map_path))
         self.width = self.grid.width
         self.height = self.grid.height
         self.avg_household_size = avg_household_size

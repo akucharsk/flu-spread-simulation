@@ -1,5 +1,6 @@
 {
   "cityMapPath": "tests/test_city.txt",
+  "cityMapPreset": "classic_test_city",
   "population": 10000,
   "steps": 300,
   "runs": 5,

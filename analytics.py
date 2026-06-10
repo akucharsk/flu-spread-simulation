@@ -11,6 +11,8 @@ import matplotlib.pyplot as plt
 
 from model import EpidemicModel
 
+UNKNOWN_MAP_NAME = "Unknown map"
+
 
 def model_metrics_to_timeseries(model: EpidemicModel, run_id: int = 1) -> list[dict]:
     """Convert a model's recorded metrics history into normalized timeseries rows."""
@@ -27,6 +29,7 @@ def model_metrics_to_timeseries(model: EpidemicModel, run_id: int = 1) -> list[d
                 "recovered": row["recovered"],
                 "population": row["population"],
                 "infected_ratio": round(row["infected_ratio"], 6),
+                "map_name": getattr(model, "map_name", UNKNOWN_MAP_NAME),
             }
         )
     return timeseries
@@ -36,6 +39,7 @@ def run_simulation_collect(config: dict, steps: int, run_id: int) -> tuple[list[
     model = EpidemicModel(
         population=config["population"],
         city_map_path=config["cityMapPath"],
+        city_map_preset=config.get("cityMapPreset"),
         time_of_day=config.get("startTime", 10),
         timestep=config.get("timestep", 0.5),
         verbose=config.get("verbose", False),
@@ -49,6 +53,7 @@ def run_simulation_collect(config: dict, steps: int, run_id: int) -> tuple[list[
     summary["run_id"] = run_id
     summary["population"] = len(model.agents)
     summary["steps_requested"] = steps
+    summary["map_name"] = getattr(model, "map_name", UNKNOWN_MAP_NAME)
     return timeseries, summary
 
 
@@ -70,10 +75,18 @@ def export_live_snapshot(
     summary["run_id"] = 1
     summary["population"] = len(model.agents)
     summary["steps_requested"] = model.current_step
+    summary["map_name"] = getattr(model, "map_name", UNKNOWN_MAP_NAME)
+
+    effective_config = {
+        "cityMapPath": getattr(model, "city_map_path", None),
+        "cityMapPreset": getattr(model, "city_map_preset", None),
+        "mapName": getattr(model, "map_name", UNKNOWN_MAP_NAME),
+        **(config or {}),
+    }
 
     return export_artifacts(
         output_dir=output_dir,
-        config=config or {},
+        config=effective_config,
         steps=model.current_step,
         all_timeseries=timeseries,
         run_summaries=[summary],
@@ -111,7 +124,7 @@ def _aggregate_by_step(all_timeseries: list[dict]) -> list[dict]:
     return aggregated
 
 
-def _plot_state_means(aggregated: list[dict], output_dir: Path) -> None:
+def _plot_state_means(aggregated: list[dict], output_dir: Path, map_name: str) -> None:
     steps = [row["step"] for row in aggregated]
 
     plt.figure(figsize=(12, 7))
@@ -129,7 +142,7 @@ def _plot_state_means(aggregated: list[dict], output_dir: Path) -> None:
         plt.plot(steps, means, label=f"{state.title()} mean", color=color, linewidth=2)
         plt.fill_between(steps, lower, upper, color=color, alpha=0.15, linewidth=0)
 
-    plt.title("Health states over time (mean +/- std)")
+    plt.title(f"Health states over time (mean +/- std) - {map_name}")
     plt.xlabel("Step")
     plt.ylabel("Agents")
     plt.legend()
@@ -139,7 +152,7 @@ def _plot_state_means(aggregated: list[dict], output_dir: Path) -> None:
     plt.close()
 
 
-def _plot_infectious_per_run(all_timeseries: list[dict], output_dir: Path) -> None:
+def _plot_infectious_per_run(all_timeseries: list[dict], output_dir: Path, map_name: str) -> None:
     runs: dict[int, list[dict]] = defaultdict(list)
     for row in all_timeseries:
         runs[row["run_id"]].append(row)
@@ -155,7 +168,7 @@ def _plot_infectious_per_run(all_timeseries: list[dict], output_dir: Path) -> No
             label=f"Run {run_id}",
         )
 
-    plt.title("Infectious curve per run")
+    plt.title(f"Infectious curve per run - {map_name}")
     plt.xlabel("Step")
     plt.ylabel("Infectious agents")
     plt.grid(alpha=0.3)
@@ -166,13 +179,13 @@ def _plot_infectious_per_run(all_timeseries: list[dict], output_dir: Path) -> No
     plt.close()
 
 
-def _plot_peak_histogram(run_summaries: list[dict], output_dir: Path) -> None:
+def _plot_peak_histogram(run_summaries: list[dict], output_dir: Path, map_name: str) -> None:
     peaks = [row["peak_infectious"] for row in run_summaries]
 
     plt.figure(figsize=(10, 6))
     bins = min(20, max(5, len(peaks)))
     plt.hist(peaks, bins=bins, color="tomato", alpha=0.85, edgecolor="black")
-    plt.title("Distribution of peak infectious counts")
+    plt.title(f"Distribution of peak infectious counts - {map_name}")
     plt.xlabel("Peak infectious")
     plt.ylabel("Frequency")
     plt.grid(axis="y", alpha=0.3)
@@ -193,6 +206,11 @@ def export_artifacts(
 
     aggregated = _aggregate_by_step(all_timeseries)
 
+    map_name = config.get("mapName") if isinstance(config, dict) else None
+    if not map_name and run_summaries:
+        map_name = run_summaries[0].get("map_name")
+    map_name = map_name or UNKNOWN_MAP_NAME
+
     _write_csv(
         output_path / "simulation_timeseries.csv",
         [
@@ -205,6 +223,7 @@ def export_artifacts(
             "recovered",
             "population",
             "infected_ratio",
+            "map_name",
         ],
         all_timeseries,
     )
@@ -213,6 +232,7 @@ def export_artifacts(
         output_path / "simulation_runs_summary.csv",
         [
             "run_id",
+            "map_name",
             "steps_requested",
             "steps_executed",
             "population",
@@ -243,9 +263,9 @@ def export_artifacts(
         aggregated,
     )
 
-    _plot_state_means(aggregated, output_path)
-    _plot_infectious_per_run(all_timeseries, output_path)
-    _plot_peak_histogram(run_summaries, output_path)
+    _plot_state_means(aggregated, output_path, map_name)
+    _plot_infectious_per_run(all_timeseries, output_path, map_name)
+    _plot_peak_histogram(run_summaries, output_path, map_name)
 
     metrics_payload = {
         "created_at": datetime.now(timezone.utc).isoformat(),
@@ -258,6 +278,7 @@ def export_artifacts(
             "total_ever_infected_mean": mean([row["total_ever_infected"] for row in run_summaries]),
             "final_recovered_mean": mean([row["final_recovered"] for row in run_summaries]),
         },
+        "map_name": map_name,
     }
 
     with (output_path / "simulation_metadata.json").open("w", encoding="utf-8") as f:

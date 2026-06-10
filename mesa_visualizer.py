@@ -3,17 +3,20 @@ from pathlib import Path
 
 import solara
 from matplotlib.colors import ListedColormap
-from mesa.visualization import SolaraViz, SpaceRenderer, make_plot_component
+from mesa.visualization import SpaceRenderer, make_plot_component
 from mesa.visualization.components import PropertyLayerStyle
+from mesa.visualization.solara_viz import ModelController, ModelCreator, SpaceRendererComponent
 from mesa.visualization.utils import update_counter
 
 from agents import PersonAgent
 from agent_types import AgentType
 from analytics import export_live_snapshot
+from map_presets import PREDEFINED_CITY_MAPS
 from model import EpidemicModel
 from states import HealthState
 
 custom_cmap = ListedColormap(["white", "lightgreen", "peachpuff", "lightblue"])
+INFECTIOUS_COLOR = "tab:red"
 
 
 def _format_int(value: int) -> str:
@@ -21,8 +24,8 @@ def _format_int(value: int) -> str:
 
 
 @solara.component
-def LiveStatsCard(model: EpidemicModel):
-    """Card with live counts and aggregate metrics that refreshes every step."""
+def live_stats_content(model: EpidemicModel):
+    """Live counts and aggregate metrics that refresh every step."""
     update_counter.get()  # subscribe to model step updates so this re-renders
 
     stats = model.get_metrics_snapshot()
@@ -35,102 +38,134 @@ def LiveStatsCard(model: EpidemicModel):
     infectious_pct = stats["infectious"] / population
     recovered_pct = stats["recovered"] / population
 
-    with solara.Card("Live statistics", style={"height": "100%"}):
-        with solara.Columns([1, 1]):
-            with solara.Column():
-                solara.Markdown(
-                    f"**Step**: {stats['step']}  \n"
-                    f"**Time of day**: {stats['time_of_day']:.2f} h  \n"
-                    f"**Population**: {_format_int(stats['population'])}  \n"
-                    f"**New exposures (last step)**: {_format_int(stats['new_exposures'])}"
-                )
-            with solara.Column():
-                solara.Markdown(
-                    f"**Peak infectious**: {_format_int(summary['peak_infectious'])} "
-                    f"(step {summary['peak_infectious_step']})  \n"
-                    f"**Cumulative infected**: {_format_int(stats['cumulative_infected'])} "
-                    f"({stats['cumulative_ratio']:.1%})  \n"
-                    f"**Currently infectious**: {_format_int(stats['infectious'])} "
-                    f"({infectious_pct:.1%})"
-                )
-
-        solara.Markdown("---")
-
-        with solara.Columns([1, 1, 1, 1]):
-            with solara.Column():
-                solara.Markdown(
-                    f"**Susceptible**  \n"
-                    f"{_format_int(stats['susceptible'])}  \n"
-                    f"{susceptible_pct:.1%}"
-                )
-            with solara.Column():
-                solara.Markdown(
-                    f"**Exposed**  \n"
-                    f"{_format_int(stats['exposed'])}  \n"
-                    f"{exposed_pct:.1%}"
-                )
-            with solara.Column():
-                solara.Markdown(
-                    f"**Infectious**  \n"
-                    f"{_format_int(stats['infectious'])}  \n"
-                    f"{infectious_pct:.1%}"
-                )
-            with solara.Column():
-                solara.Markdown(
-                    f"**Recovered**  \n"
-                    f"{_format_int(stats['recovered'])}  \n"
-                    f"{recovered_pct:.1%}"
-                )
-
-        solara.Markdown("---")
-        solara.Markdown("**Infectious by agent type**")
-
-        type_lines = []
-        for agent_type in AgentType:
-            counts = by_type[agent_type.value]
-            total = sum(counts.values())
-            inf = counts["infectious"]
-            ratio = inf / total if total else 0.0
-            type_lines.append(
-                f"- {agent_type.value.capitalize()}: "
-                f"{_format_int(inf)} infectious / {_format_int(total)} ({ratio:.1%})"
+    with solara.Columns([1, 1]):
+        with solara.Column():
+            solara.Markdown(
+                f"**Step**: {stats['step']}  \n"
+                f"**Time of day**: {stats['time_of_day']:.2f} h  \n"
+                f"**Population**: {_format_int(stats['population'])}  \n"
+                f"**New exposures (last step)**: {_format_int(stats['new_exposures'])}"
             )
-        solara.Markdown("\n".join(type_lines))
+        with solara.Column():
+            solara.Markdown(
+                f"**Peak infectious**: {_format_int(summary['peak_infectious'])} "
+                f"(step {summary['peak_infectious_step']})  \n"
+                f"**Cumulative infected**: {_format_int(stats['cumulative_infected'])} "
+                f"({stats['cumulative_ratio']:.1%})  \n"
+                f"**Currently infectious**: {_format_int(stats['infectious'])} "
+                f"({infectious_pct:.1%})"
+            )
+
+    solara.Markdown("---")
+
+    with solara.Columns([1, 1, 1, 1]):
+        with solara.Column():
+            solara.Markdown(
+                f"**Susceptible**  \n"
+                f"{_format_int(stats['susceptible'])}  \n"
+                f"{susceptible_pct:.1%}"
+            )
+        with solara.Column():
+            solara.Markdown(
+                f"**Exposed**  \n"
+                f"{_format_int(stats['exposed'])}  \n"
+                f"{exposed_pct:.1%}"
+            )
+        with solara.Column():
+            solara.Markdown(
+                f"**Infectious**  \n"
+                f"{_format_int(stats['infectious'])}  \n"
+                f"{infectious_pct:.1%}"
+            )
+        with solara.Column():
+            solara.Markdown(
+                f"**Recovered**  \n"
+                f"{_format_int(stats['recovered'])}  \n"
+                f"{recovered_pct:.1%}"
+            )
+
+    solara.Markdown("---")
+    solara.Markdown("**Infectious by agent type**")
+
+    type_lines = []
+    for agent_type in AgentType:
+        counts = by_type[agent_type.value]
+        total = sum(counts.values())
+        inf = counts["infectious"]
+        ratio = inf / total if total else 0.0
+        type_lines.append(
+            f"- {agent_type.value.capitalize()}: "
+            f"{_format_int(inf)} infectious / {_format_int(total)} ({ratio:.1%})"
+        )
+    solara.Markdown("\n".join(type_lines))
 
 
 @solara.component
-def ExportPanel(model: EpidemicModel):
-    """Interactive panel that lets the user export analytics on demand."""
+def right_panel(model: EpidemicModel, model_parameters: solara.Reactive[dict]):
+    """Right-side panel: map presets and export actions."""
     update_counter.get()  # so the displayed step in the hint stays current
 
     base_dir = solara.use_reactive("output/live_export")
     last_message = solara.use_reactive("")
     is_error = solara.use_reactive(False)
 
+    label_to_key = {data["label"]: key for key, data in PREDEFINED_CITY_MAPS.items()}
+    labels = list(label_to_key.keys())
+    initial_label = PREDEFINED_CITY_MAPS.get(
+        model.city_map_preset,
+        {"label": model.map_name},
+    )["label"]
+    selected_map_label = solara.use_reactive(initial_label)
+
+    def on_map_change(label: str):
+        selected_map_label.value = label
+        selected_key = label_to_key[label]
+        model_parameters.value = {
+            **model_parameters.value,
+            "city_map_preset": selected_key,
+        }
+
     def do_export():
         try:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             target = Path(base_dir.value) / f"step_{model.current_step:04d}_{timestamp}"
-            artifacts = export_live_snapshot(model, str(target))
+            artifacts = export_live_snapshot(
+                model,
+                str(target),
+                config={
+                    "cityMapPath": model.city_map_path,
+                    "cityMapPreset": model.city_map_preset,
+                    "mapName": model.map_name,
+                },
+            )
             is_error.value = False
             last_message.value = f"Exported {len(artifacts['plots'])} plots and 3 CSVs to: {artifacts['output_dir']}"
         except Exception as exc:  # pragma: no cover - defensive UI feedback
             is_error.value = True
             last_message.value = f"Export failed: {exc}"
 
-    with solara.Card("Generate visualization & data export", style={"height": "100%"}):
-        solara.Markdown(
-            "Click the button below at any time during the simulation to dump the "
-            "current run's metrics history (CSV) and matplotlib plots used for "
-            "analysis. Each click creates a new timestamped subfolder."
+    with solara.Card("Map presets & export", style={"height": "100%"}):
+        solara.Select(
+            "Predefined city map",
+            value=selected_map_label,
+            values=labels,
+            on_value=on_map_change,
         )
+        selected_key = label_to_key[selected_map_label.value]
+        solara.Markdown(
+            f"**Selected map**: {selected_map_label.value}  \n"
+            f"{PREDEFINED_CITY_MAPS[selected_key]['description']}  \n"
+            "Change takes effect after **Reset**."
+        )
+        solara.Markdown("---")
+
         solara.InputText(
             label="Output directory (created if missing)",
             value=base_dir,
         )
         solara.Markdown(
-            f"Current step: **{model.current_step}** &middot; "
-            f"recorded snapshots: **{len(model.metrics_history)}**"
+            f"Current map: **{model.map_name}**  \n"
+            f"Current step: **{model.current_step}** &middot; snapshots: **{len(model.metrics_history)}**"
         )
         solara.Button(
             label="Generate visualization",
@@ -193,7 +228,7 @@ class MesaVisualizer:
             {
                 "Susceptible": "tab:green",
                 "Exposed": "tab:orange",
-                "Infectious": "tab:red",
+                "Infectious": INFECTIOUS_COLOR,
                 "Recovered": "tab:gray",
             },
             backend="matplotlib",
@@ -207,7 +242,7 @@ class MesaVisualizer:
         )
 
         cumulative_plot = make_plot_component(
-            {"Cumulative_Infected": "tab:red"},
+            {"Cumulative_Infected": INFECTIOUS_COLOR},
             backend="matplotlib",
             post_process=self._make_post_process(
                 "Cumulative ever-infected (population - susceptible)", "Agents"
@@ -217,7 +252,7 @@ class MesaVisualizer:
         type_color_map = {
             AgentType.STUDENT: "tab:blue",
             AgentType.WORKER: "tab:orange",
-            AgentType.SENIOR: "tab:red",
+            AgentType.SENIOR: INFECTIOUS_COLOR,
             AgentType.HEALTHCARE: "tab:green",
             AgentType.CHILDREN: "tab:purple",
         }
@@ -231,32 +266,149 @@ class MesaVisualizer:
 
         return seir_plot, new_exposures_plot, cumulative_plot, infectious_by_type_plot
 
+    @staticmethod
+    def _plot_callable(plot_component):
+        if isinstance(plot_component, tuple):
+            return plot_component[0]
+        return plot_component
+
+    def _build_model_params(self):
+        return {
+            "city_map_path": self.model.city_map_path,
+            "city_map_preset": self.model.city_map_preset,
+            "population": {
+                "type": "SliderInt",
+                "label": "Population",
+                "value": len(self.model.agents),
+                "min": 200,
+                "max": 20000,
+                "step": 200,
+            },
+            "avg_household_size": {
+                "type": "SliderInt",
+                "label": "Average household size",
+                "value": int(self.model.avg_household_size),
+                "min": 1,
+                "max": 8,
+                "step": 1,
+            },
+            "time_of_day": {
+                "type": "SliderFloat",
+                "label": "Start time (h)",
+                "value": float(self.model.time_of_day),
+                "min": 0.0,
+                "max": 23.5,
+                "step": 0.5,
+            },
+            "timestep": {
+                "type": "SliderFloat",
+                "label": "Time step (h)",
+                "value": float(self.model.timestep),
+                "min": 0.05,
+                "max": 2.0,
+                "step": 0.05,
+            },
+            "verbose": {
+                "type": "Checkbox",
+                "label": "Verbose logs",
+                "value": bool(self.model.verbose),
+            },
+        }
+
+    @solara.component
+    def _custom_layout(
+        self,
+        seir_plot,
+        new_exposures_plot,
+        cumulative_plot,
+        infectious_by_type_plot,
+    ):
+        model = solara.use_reactive(self.model)
+        renderer = solara.use_reactive(self.renderer)
+
+        reactive_model_parameters = solara.use_reactive({})
+        reactive_play_interval = solara.use_reactive(100)
+        reactive_render_interval = solara.use_reactive(1)
+        reactive_use_threads = solara.use_reactive(False)
+
+        model_params = self._build_model_params()
+
+        with solara.AppBar():
+            solara.AppBarTitle("Flu Spread Simulation")
+            solara.lab.ThemeToggle()
+
+        with solara.Sidebar(), solara.Column():
+            with solara.Card("Controls"):
+                solara.SliderInt(
+                    label="Play Interval (ms)",
+                    value=reactive_play_interval,
+                    on_value=lambda v: reactive_play_interval.set(v),
+                    min=1,
+                    max=500,
+                    step=10,
+                )
+                solara.SliderInt(
+                    label="Render Interval (steps)",
+                    value=reactive_render_interval,
+                    on_value=lambda v: reactive_render_interval.set(v),
+                    min=1,
+                    max=100,
+                    step=2,
+                )
+                solara.Checkbox(
+                    label="Use Threads",
+                    value=reactive_use_threads,
+                    on_value=lambda v: reactive_use_threads.set(v),
+                )
+                ModelController(
+                    model,
+                    renderer=renderer,
+                    model_parameters=reactive_model_parameters,
+                    play_interval=reactive_play_interval,
+                    render_interval=reactive_render_interval,
+                    use_threads=reactive_use_threads,
+                )
+
+            with solara.Card("Model Parameters"):
+                ModelCreator(
+                    model,
+                    model_params,
+                    model_parameters=reactive_model_parameters,
+                )
+
+            with solara.Card("Live statistics"):
+                live_stats_content(model.value)
+
+        solara.Style(
+            """
+            .v-container { max-width: 100% !important; }
+            .simulation-main { padding: 16px; }
+            .visualization-card { margin-top: 22px; }
+            """
+        )
+
+        with solara.Column(classes=["simulation-main"]):
+            with solara.Columns([3, 2]):
+                with solara.Column():
+                    with solara.Card("Agent map"):
+                        SpaceRendererComponent(model.value, renderer.value)
+
+                    with solara.Card("Visualization", classes=["visualization-card"]):
+                        self._plot_callable(seir_plot)(model.value)
+                        self._plot_callable(new_exposures_plot)(model.value)
+                        self._plot_callable(cumulative_plot)(model.value)
+                        self._plot_callable(infectious_by_type_plot)(model.value)
+
+                with solara.Column():
+                    right_panel(model.value, reactive_model_parameters)
+
     def run(self):
         seir_plot, new_exposures_plot, cumulative_plot, infectious_by_type_plot = (
             self._build_plot_components()
         )
-
-        # make_plot_component already returns a (callable, page) tuple, so it
-        # can be added to the components list as-is. Custom Solara components
-        # are wrapped in (component, page) tuples manually.
-        components = [
-            (LiveStatsCard, 0),
+        return self._custom_layout(
             seir_plot,
             new_exposures_plot,
             cumulative_plot,
             infectious_by_type_plot,
-            (ExportPanel, 0),
-        ]
-
-        page = SolaraViz(
-            self.model,
-            renderer=self.renderer,
-            components=components,
-            name="Flu Spread Simulation",
         )
-
-        # Force the Solara container to use full screen width so the draggable
-        # grid of charts has enough room.
-        css_style = solara.Style(".v-container { max-width: 100% !important; }")
-        solara.Column(children=[css_style, page])
-        return page
