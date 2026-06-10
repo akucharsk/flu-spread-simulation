@@ -45,9 +45,9 @@ class MesaVisualizer:
         return PropertyLayerStyle(colormap=custom_cmap)
 
     @solara.component
-    def live_stats_panel(self, model: EpidemicModel):
-        stats = model.get_metrics_snapshot()
-        summary = model.get_summary_metrics()
+    def live_stats_panel(self):
+        stats = self.model.get_metrics_snapshot()
+        summary = self.model.get_summary_metrics()
         markdown = (
             f"### Live stats\n"
             f"- Step: {stats['step']}\n"
