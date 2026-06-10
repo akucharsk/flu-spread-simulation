@@ -8,7 +8,7 @@ from model import EpidemicModel
 def main():
     parser = argparse.ArgumentParser(description="Run flu spread simulation with live visualization")
     parser.add_argument("--config", default="config.json", help="Path to config file")
-    args = parser.parse_args()
+    args, _ = parser.parse_known_args()
 
     with open(args.config) as file:
         config = json.load(file)
