@@ -1,5 +1,5 @@
 import math
-from mesa.visualization import SolaraViz, SpaceRenderer
+from mesa.visualization import SolaraViz, SpaceRenderer, make_plot_component
 from mesa.visualization.components import PropertyLayerStyle
 from agents import PersonAgent
 from model import EpidemicModel
@@ -44,11 +44,34 @@ class MesaVisualizer:
     def propertylayer_portrayal(self, layer):
         return PropertyLayerStyle(colormap=custom_cmap)
 
+    @solara.component
+    def live_stats_panel(self, model: EpidemicModel):
+        stats = model.get_metrics_snapshot()
+        summary = model.get_summary_metrics()
+        markdown = (
+            f"### Live stats\n"
+            f"- Step: {stats['step']}\n"
+            f"- Time of day: {stats['time_of_day']:.2f}\n"
+            f"- Susceptible: {stats['susceptible']}\n"
+            f"- Exposed: {stats['exposed']}\n"
+            f"- Infectious: {stats['infectious']}\n"
+            f"- Recovered: {stats['recovered']}\n"
+            f"- Current infectious ratio: {stats['infected_ratio']:.2%}\n"
+            f"- Peak infectious so far: {summary['peak_infectious']} "
+            f"(step {summary['peak_infectious_step']})"
+        )
+        solara.Markdown(markdown)
+
     def run(self):
+        health_plot = make_plot_component(
+            ["Susceptible", "Exposed", "Infectious", "Recovered"],
+            backend="matplotlib",
+        )
+
         page = SolaraViz(
             self.model,
             renderer=self.renderer,
-            components=[],
+            components=[health_plot, self.live_stats_panel],
         )
         # 3. Custom CSS to force the Solara UI to use the full screen width
         css_style = solara.Style(".v-container { max-width: 100% !important; }")

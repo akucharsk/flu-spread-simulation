@@ -1,4 +1,5 @@
 mesa[rec]
+matplotlib
 pygame
 pytest
 pytest-cov

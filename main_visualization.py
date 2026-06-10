@@ -6,8 +6,11 @@ from model import EpidemicModel
 
 
 def main():
+    parser = argparse.ArgumentParser(description="Run flu spread simulation with live visualization")
+    parser.add_argument("--config", default="config.json", help="Path to config file")
+    args = parser.parse_args()
 
-    with open("config.json") as file:
+    with open(args.config) as file:
         config = json.load(file)
 
     model = EpidemicModel(
@@ -15,6 +18,7 @@ def main():
         city_map_path=config["cityMapPath"],
         time_of_day=config.get("startTime", 10),
         timestep=config.get("timestep", 0.5),
+        verbose=config.get("verbose", False),
     )
 
     visualizer = MesaVisualizer(
@@ -27,5 +31,4 @@ def main():
 
 if __name__ == "__main__":
     visualizer = main()
-    page = visualizer.run()
-    page
+    visualizer.run()

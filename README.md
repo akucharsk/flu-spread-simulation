@@ -2,6 +2,11 @@
 
 Agent-based epidemic simulation modeling how influenza spreads across society through spatial proximity, family networks, and dynamic social interactions.
 
+Now includes:
+- live interactive S/E/I/R charts during visualization,
+- automatic export of analytics data (CSV/JSON),
+- static plots generated from single or multiple simulation runs.
+
 ## 📋 Project Overview
 
 This project uses **Mesa** (Multi-Agent Simulator with Python) to simulate disease transmission in a population. Agents have different characteristics and interact based on proximity and social networks, creating realistic epidemic dynamics.
@@ -72,21 +77,27 @@ DISTANCE_DECAY_FUNCTION = "linear"        # Linear probability decay
 | `cityMapPath` | string | Path to the city map text file (cell codes: `0`=default, `1`=household, `2`=workplace, `3`=public space) |
 | `population` | int | Number of agents to simulate |
 | `steps` | int \| null | Steps to run headless; `null` launches the interactive visualizer |
+| `runs` | int | Number of independent runs for batch analytics (headless mode) |
+| `outputDir` | string | Folder where CSV/JSON and static plots are saved |
 | `figsize` | [w, h] | Visualizer window size in inches |
 | `agentSize` | int | Rendered agent dot size |
 | `startTime` | float | Starting time of day in 24 h format (e.g. `10` = 10:00) |
 | `timestep` | float | Hours advanced per simulation step (e.g. `0.1`) |
+| `verbose` | bool | Print per-step internal time updates to stdout |
 
 Example:
 ```json
 {
   "cityMapPath": "city1.txt",
   "population": 10000,
-  "steps": null,
+   "steps": 300,
+   "runs": 5,
+   "outputDir": "output",
   "figsize": [20, 20],
   "agentSize": 10,
   "startTime": 10,
-  "timestep": 0.1
+   "timestep": 0.1,
+   "verbose": false
 }
 ```
 
@@ -96,12 +107,33 @@ Example:
 # Install dependencies
 pip install -r requirements.txt
 
-# Run headless simulation (prints progress to stdout)
-python main_simulation.py --steps 100
+# Run headless simulation (single run, exports CSV/JSON/plots)
+python main_simulation.py --steps 100 --runs 1 --output-dir output
+
+# Run batch experiment for analysis (e.g. for grade 5.0 requirements)
+python main_simulation.py --steps 300 --runs 20 --output-dir output/experiment_01
 
 # Run with interactive Solara visualization
 python main_visualization.py
 ```
+
+## 📈 Analytics Outputs
+
+After `main_simulation.py` finishes, these files are generated in `outputDir`:
+
+- `simulation_timeseries.csv` - full per-step data for every run (`run_id`, `step`, `time_of_day`, `S/E/I/R`, ratios)
+- `simulation_runs_summary.csv` - one row per run (peak infections, final states, total infected)
+- `simulation_aggregated_by_step.csv` - per-step mean/std across runs
+- `simulation_metadata.json` - experiment metadata and aggregate metrics
+- `health_states_mean_std.png` - mean +/- std chart for S/E/I/R over time
+- `infectious_per_run.png` - infectious curve for each run
+- `peak_infectious_histogram.png` - distribution of infection peaks across runs
+
+## 🖥️ Live Interactive Stats
+
+`main_visualization.py` now shows:
+- live S/E/I/R chart updated during simulation,
+- textual panel with current step, current time, counts, infection ratio and current peak.
 
 ## 📁 Project Structure
 

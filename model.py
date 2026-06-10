@@ -1,5 +1,6 @@
 from mesa import Model
-from mesa.space import MultiGrid, PropertyLayer
+from mesa.datacollection import DataCollector
+from mesa.space import PropertyLayer
 import numpy as np
 
 from agents import PersonAgent
@@ -7,17 +8,18 @@ from agent_types import AgentType, AGENT_CONFIG
 import random
 
 from city_utils import build_city_grid, load_city_map
-from states import CellType
+from states import CellType, HealthState
 
 class EpidemicModel(Model):
 
     def __init__(
         self,
-        city_map_path="city2.txt",
+        city_map_path="tests/test_city.txt",
         population=2000,
         avg_household_size=3,
         time_of_day=10, # 10:00
-        timestep=0.5 # hour
+        timestep=0.5, # hour
+        verbose=False,
     ):
         super().__init__()
         self.location_data = {}
@@ -27,14 +29,25 @@ class EpidemicModel(Model):
         self.avg_household_size = avg_household_size
 
         self.running = True
+        self.current_step = 0
         self.time_of_day = time_of_day
         self.timestep = timestep
+        self.verbose = verbose
+        self.metrics_history = []
+        self.datacollector = DataCollector(
+            model_reporters={
+                "Susceptible": lambda m: m.get_health_counts()["susceptible"],
+                "Exposed": lambda m: m.get_health_counts()["exposed"],
+                "Infectious": lambda m: m.get_health_counts()["infectious"],
+                "Recovered": lambda m: m.get_health_counts()["recovered"],
+            }
+        )
 
         # Create agents
         agents_list = []
 
         self._create_property_layers()
-        for i in range(population):
+        for _ in range(population):
             agent_type = random.choice(list(AgentType))
             params = AGENT_CONFIG[agent_type]
             
@@ -58,6 +71,57 @@ class EpidemicModel(Model):
         # Infect one initial agent
         patient_zero = random.choice(agents_list)
         patient_zero.health_state = patient_zero.health_state.INFECTIOUS
+        self.record_metrics()
+        self.datacollector.collect(self)
+
+    def get_health_counts(self):
+        counts = {
+            "susceptible": 0,
+            "exposed": 0,
+            "infectious": 0,
+            "recovered": 0,
+        }
+        for agent in self.agents:
+            if agent.health_state == HealthState.SUSCEPTIBLE:
+                counts["susceptible"] += 1
+            elif agent.health_state == HealthState.EXPOSED:
+                counts["exposed"] += 1
+            elif agent.health_state == HealthState.INFECTIOUS:
+                counts["infectious"] += 1
+            elif agent.health_state == HealthState.RECOVERED:
+                counts["recovered"] += 1
+        return counts
+
+    def get_metrics_snapshot(self):
+        counts = self.get_health_counts()
+        population = len(self.agents)
+        return {
+            "step": self.current_step,
+            "time_of_day": round(self.time_of_day, 4),
+            "susceptible": counts["susceptible"],
+            "exposed": counts["exposed"],
+            "infectious": counts["infectious"],
+            "recovered": counts["recovered"],
+            "population": population,
+            "infected_ratio": counts["infectious"] / population if population else 0.0,
+        }
+
+    def record_metrics(self):
+        self.metrics_history.append(self.get_metrics_snapshot())
+
+    def get_summary_metrics(self):
+        peak = max(self.metrics_history, key=lambda item: item["infectious"])
+        final = self.metrics_history[-1]
+        return {
+            "steps_executed": self.current_step,
+            "peak_infectious": peak["infectious"],
+            "peak_infectious_step": peak["step"],
+            "final_susceptible": final["susceptible"],
+            "final_exposed": final["exposed"],
+            "final_infectious": final["infectious"],
+            "final_recovered": final["recovered"],
+            "total_ever_infected": len(self.agents) - final["susceptible"],
+        }
         
     def _create_property_layers(self):
         self.type_property_layer = PropertyLayer(
@@ -176,7 +240,8 @@ class EpidemicModel(Model):
     
     def update_time(self):
         self.time_of_day += self.timestep
-        print(f"[SYSTEM]: TIME IS: {self.time_of_day}")
+        if self.verbose:
+            print(f"[SYSTEM]: TIME IS: {self.time_of_day}")
         if self.time_of_day >= 24:
             self.time_of_day -= 24
         
@@ -193,3 +258,6 @@ class EpidemicModel(Model):
         self.agents.shuffle_do("step")
         self.update_time()
         self.update_agents_based_on_time()
+        self.current_step += 1
+        self.record_metrics()
+        self.datacollector.collect(self)

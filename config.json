@@ -1,9 +1,12 @@
 {
-  "cityMapPath": "city.txt",
+  "cityMapPath": "tests/test_city.txt",
   "population": 10000,
-  "steps": null,
+  "steps": 300,
+  "runs": 5,
+  "outputDir": "output",
   "figsize": [20, 20],
   "agentSize": 10,
   "startTime": 10,
-  "timestep": 0.1
+  "timestep": 0.1,
+  "verbose": false
 }
