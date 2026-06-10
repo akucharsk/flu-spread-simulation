@@ -105,7 +105,6 @@ def right_panel(model: EpidemicModel, model_parameters: solara.Reactive[dict]):
     """Right-side panel: map presets and export actions."""
     update_counter.get()  # so the displayed step in the hint stays current
 
-    base_dir = solara.use_reactive("output/live_export")
     last_message = solara.use_reactive("")
     is_error = solara.use_reactive(False)
 
@@ -128,7 +127,7 @@ def right_panel(model: EpidemicModel, model_parameters: solara.Reactive[dict]):
     def do_export():
         try:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            target = Path(base_dir.value) / f"step_{model.current_step:04d}_{timestamp}"
+            target = Path("output/live_export") / f"step_{model.current_step:04d}_{timestamp}"
             artifacts = export_live_snapshot(
                 model,
                 str(target),
@@ -144,7 +143,7 @@ def right_panel(model: EpidemicModel, model_parameters: solara.Reactive[dict]):
             is_error.value = True
             last_message.value = f"Export failed: {exc}"
 
-    with solara.Card("Map presets & export", classes=["sidebar-card-compact"], style={"height": "100%"}):
+    with solara.Card("Map presets", classes=["sidebar-card-compact"]):
         solara.Select(
             "",
             value=selected_map_label,
@@ -152,10 +151,7 @@ def right_panel(model: EpidemicModel, model_parameters: solara.Reactive[dict]):
             on_value=on_map_change,
         )
 
-        solara.InputText(
-            label="",
-            value=base_dir,
-        )
+    with solara.Card("Export", classes=["sidebar-card-compact"]):
         solara.Button(
             label="Generate visualization",
             on_click=do_export,
