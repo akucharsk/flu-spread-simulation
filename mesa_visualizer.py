@@ -315,100 +315,89 @@ class MesaVisualizer:
             },
         }
 
-    @solara.component
-    def _custom_layout(
-        self,
-        seir_plot,
-        new_exposures_plot,
-        cumulative_plot,
-        infectious_by_type_plot,
-    ):
-        model = solara.use_reactive(self.model)
-        renderer = solara.use_reactive(self.renderer)
-
-        reactive_model_parameters = solara.use_reactive({})
-        reactive_play_interval = solara.use_reactive(100)
-        reactive_render_interval = solara.use_reactive(1)
-        reactive_use_threads = solara.use_reactive(False)
-
-        model_params = self._build_model_params()
-
-        with solara.AppBar():
-            solara.AppBarTitle("Flu Spread Simulation")
-            solara.lab.ThemeToggle()
-
-        with solara.Sidebar(), solara.Column():
-            with solara.Card("Controls"):
-                solara.SliderInt(
-                    label="Play Interval (ms)",
-                    value=reactive_play_interval,
-                    on_value=lambda v: reactive_play_interval.set(v),
-                    min=1,
-                    max=500,
-                    step=10,
-                )
-                solara.SliderInt(
-                    label="Render Interval (steps)",
-                    value=reactive_render_interval,
-                    on_value=lambda v: reactive_render_interval.set(v),
-                    min=1,
-                    max=100,
-                    step=2,
-                )
-                solara.Checkbox(
-                    label="Use Threads",
-                    value=reactive_use_threads,
-                    on_value=lambda v: reactive_use_threads.set(v),
-                )
-                ModelController(
-                    model,
-                    renderer=renderer,
-                    model_parameters=reactive_model_parameters,
-                    play_interval=reactive_play_interval,
-                    render_interval=reactive_render_interval,
-                    use_threads=reactive_use_threads,
-                )
-
-            with solara.Card("Model Parameters"):
-                ModelCreator(
-                    model,
-                    model_params,
-                    model_parameters=reactive_model_parameters,
-                )
-
-            with solara.Card("Live statistics"):
-                live_stats_content(model.value)
-
-        solara.Style(
-            """
-            .v-container { max-width: 100% !important; }
-            .simulation-main { padding: 16px; }
-            .visualization-card { margin-top: 22px; }
-            """
-        )
-
-        with solara.Column(classes=["simulation-main"]):
-            with solara.Columns([3, 2]):
-                with solara.Column():
-                    with solara.Card("Agent map"):
-                        SpaceRendererComponent(model.value, renderer.value)
-
-                    with solara.Card("Visualization", classes=["visualization-card"]):
-                        self._plot_callable(seir_plot)(model.value)
-                        self._plot_callable(new_exposures_plot)(model.value)
-                        self._plot_callable(cumulative_plot)(model.value)
-                        self._plot_callable(infectious_by_type_plot)(model.value)
-
-                with solara.Column():
-                    right_panel(model.value, reactive_model_parameters)
-
     def run(self):
         seir_plot, new_exposures_plot, cumulative_plot, infectious_by_type_plot = (
             self._build_plot_components()
         )
-        return self._custom_layout(
-            seir_plot,
-            new_exposures_plot,
-            cumulative_plot,
-            infectious_by_type_plot,
-        )
+        model_params = self._build_model_params()
+
+        @solara.component
+        def page():
+            model = solara.use_reactive(self.model)
+            renderer = solara.use_reactive(self.renderer)
+
+            reactive_model_parameters = solara.use_reactive({})
+            reactive_play_interval = solara.use_reactive(100)
+            reactive_render_interval = solara.use_reactive(1)
+            reactive_use_threads = solara.use_reactive(False)
+
+            with solara.AppBar():
+                solara.AppBarTitle("Flu Spread Simulation")
+                solara.lab.ThemeToggle()
+
+            with solara.Sidebar(), solara.Column():
+                with solara.Card("Controls"):
+                    solara.SliderInt(
+                        label="Play Interval (ms)",
+                        value=reactive_play_interval,
+                        on_value=lambda v: reactive_play_interval.set(v),
+                        min=1,
+                        max=500,
+                        step=10,
+                    )
+                    solara.SliderInt(
+                        label="Render Interval (steps)",
+                        value=reactive_render_interval,
+                        on_value=lambda v: reactive_render_interval.set(v),
+                        min=1,
+                        max=100,
+                        step=2,
+                    )
+                    solara.Checkbox(
+                        label="Use Threads",
+                        value=reactive_use_threads,
+                        on_value=lambda v: reactive_use_threads.set(v),
+                    )
+                    ModelController(
+                        model,
+                        renderer=renderer,
+                        model_parameters=reactive_model_parameters,
+                        play_interval=reactive_play_interval,
+                        render_interval=reactive_render_interval,
+                        use_threads=reactive_use_threads,
+                    )
+
+                with solara.Card("Model Parameters"):
+                    ModelCreator(
+                        model,
+                        model_params,
+                        model_parameters=reactive_model_parameters,
+                    )
+
+                with solara.Card("Live statistics"):
+                    live_stats_content(model.value)
+
+            solara.Style(
+                """
+                .v-container { max-width: 100% !important; }
+                .simulation-main { padding: 16px; }
+                .visualization-card { margin-top: 22px; }
+                """
+            )
+
+            with solara.Column(classes=["simulation-main"]):
+                with solara.Columns([3, 2]):
+                    with solara.Column():
+                        with solara.Card("Agent map"):
+                            SpaceRendererComponent(model.value, renderer.value)
+
+                        with solara.Card("Visualization", classes=["visualization-card"]):
+                            self._plot_callable(seir_plot)(model.value)
+                            self._plot_callable(new_exposures_plot)(model.value)
+                            self._plot_callable(cumulative_plot)(model.value)
+                            self._plot_callable(infectious_by_type_plot)(model.value)
+
+                    with solara.Column():
+                        right_panel(model.value, reactive_model_parameters)
+
+        return page
