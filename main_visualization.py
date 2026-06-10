@@ -29,6 +29,5 @@ def main():
     return visualizer
 
 
-if __name__ == "__main__":
-    visualizer = main()
-    visualizer.run()
+visualizer = main()
+Page = visualizer.run()
