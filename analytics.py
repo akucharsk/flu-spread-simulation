@@ -12,18 +12,8 @@ import matplotlib.pyplot as plt
 from model import EpidemicModel
 
 
-def run_simulation_collect(config: dict, steps: int, run_id: int) -> tuple[list[dict], dict]:
-    model = EpidemicModel(
-        population=config["population"],
-        city_map_path=config["cityMapPath"],
-        time_of_day=config.get("startTime", 10),
-        timestep=config.get("timestep", 0.5),
-        verbose=config.get("verbose", False),
-    )
-
-    for _ in range(steps):
-        model.step()
-
+def model_metrics_to_timeseries(model: EpidemicModel, run_id: int = 1) -> list[dict]:
+    """Convert a model's recorded metrics history into normalized timeseries rows."""
     timeseries = []
     for row in model.metrics_history:
         timeseries.append(
@@ -39,12 +29,55 @@ def run_simulation_collect(config: dict, steps: int, run_id: int) -> tuple[list[
                 "infected_ratio": round(row["infected_ratio"], 6),
             }
         )
+    return timeseries
 
+
+def run_simulation_collect(config: dict, steps: int, run_id: int) -> tuple[list[dict], dict]:
+    model = EpidemicModel(
+        population=config["population"],
+        city_map_path=config["cityMapPath"],
+        time_of_day=config.get("startTime", 10),
+        timestep=config.get("timestep", 0.5),
+        verbose=config.get("verbose", False),
+    )
+
+    for _ in range(steps):
+        model.step()
+
+    timeseries = model_metrics_to_timeseries(model, run_id=run_id)
     summary = model.get_summary_metrics()
     summary["run_id"] = run_id
     summary["population"] = len(model.agents)
     summary["steps_requested"] = steps
     return timeseries, summary
+
+
+def export_live_snapshot(
+    model: EpidemicModel,
+    output_dir: str,
+    config: dict | None = None,
+) -> dict:
+    """Export the current state of an interactively running model to disk.
+
+    Produces the same artifact set as a 1-run batch experiment - useful for
+    'Generate visualization' button during/after live simulation.
+    """
+    if not model.metrics_history:
+        raise ValueError("Model has no recorded metrics yet - run at least one step before exporting.")
+
+    timeseries = model_metrics_to_timeseries(model, run_id=1)
+    summary = model.get_summary_metrics()
+    summary["run_id"] = 1
+    summary["population"] = len(model.agents)
+    summary["steps_requested"] = model.current_step
+
+    return export_artifacts(
+        output_dir=output_dir,
+        config=config or {},
+        steps=model.current_step,
+        all_timeseries=timeseries,
+        run_summaries=[summary],
+    )
 
 
 def _write_csv(path: Path, fieldnames: list[str], rows: list[dict]) -> None:

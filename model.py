@@ -10,6 +10,15 @@ import random
 from city_utils import build_city_grid, load_city_map
 from states import CellType, HealthState
 
+
+def _infectious_of_type_reporter(agent_type: AgentType):
+    """Build a DataCollector reporter for infectious agents of a given type."""
+    return lambda m: sum(
+        1 for a in m.agents
+        if a.agent_type == agent_type and a.health_state == HealthState.INFECTIOUS
+    )
+
+
 class EpidemicModel(Model):
 
     def __init__(
@@ -34,12 +43,19 @@ class EpidemicModel(Model):
         self.timestep = timestep
         self.verbose = verbose
         self.metrics_history = []
+        self.new_exposures_step = 0
         self.datacollector = DataCollector(
             model_reporters={
                 "Susceptible": lambda m: m.get_health_counts()["susceptible"],
                 "Exposed": lambda m: m.get_health_counts()["exposed"],
                 "Infectious": lambda m: m.get_health_counts()["infectious"],
                 "Recovered": lambda m: m.get_health_counts()["recovered"],
+                "New_Exposures": lambda m: m.new_exposures_step,
+                "Cumulative_Infected": lambda m: len(m.agents) - m.get_health_counts()["susceptible"],
+                **{
+                    f"Infectious_{t.value}": _infectious_of_type_reporter(t)
+                    for t in AgentType
+                },
             }
         )
 
@@ -95,6 +111,7 @@ class EpidemicModel(Model):
     def get_metrics_snapshot(self):
         counts = self.get_health_counts()
         population = len(self.agents)
+        cumulative_infected = population - counts["susceptible"]
         return {
             "step": self.current_step,
             "time_of_day": round(self.time_of_day, 4),
@@ -104,10 +121,31 @@ class EpidemicModel(Model):
             "recovered": counts["recovered"],
             "population": population,
             "infected_ratio": counts["infectious"] / population if population else 0.0,
+            "cumulative_infected": cumulative_infected,
+            "cumulative_ratio": cumulative_infected / population if population else 0.0,
+            "new_exposures": self.new_exposures_step,
         }
 
     def record_metrics(self):
         self.metrics_history.append(self.get_metrics_snapshot())
+
+    def get_health_counts_by_type(self):
+        """Return per-agent-type breakdown of the four health states."""
+        result = {
+            t.value: {"susceptible": 0, "exposed": 0, "infectious": 0, "recovered": 0}
+            for t in AgentType
+        }
+        for agent in self.agents:
+            bucket = result[agent.agent_type.value]
+            if agent.health_state == HealthState.SUSCEPTIBLE:
+                bucket["susceptible"] += 1
+            elif agent.health_state == HealthState.EXPOSED:
+                bucket["exposed"] += 1
+            elif agent.health_state == HealthState.INFECTIOUS:
+                bucket["infectious"] += 1
+            elif agent.health_state == HealthState.RECOVERED:
+                bucket["recovered"] += 1
+        return result
 
     def get_summary_metrics(self):
         peak = max(self.metrics_history, key=lambda item: item["infectious"])
@@ -255,9 +293,14 @@ class EpidemicModel(Model):
                 agent.target_destination = CellType.WORKPLACE
 
     def step(self):
+        prev_susceptible = self.get_health_counts()["susceptible"]
         self.agents.shuffle_do("step")
         self.update_time()
         self.update_agents_based_on_time()
         self.current_step += 1
+        new_susceptible = self.get_health_counts()["susceptible"]
+        # Susceptible can only decrease so the delta is the number of newly
+        # exposed agents during this step. clamp to 0 just in case.
+        self.new_exposures_step = max(0, prev_susceptible - new_susceptible)
         self.record_metrics()
         self.datacollector.collect(self)
