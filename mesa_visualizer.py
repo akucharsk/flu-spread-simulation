@@ -368,27 +368,31 @@ class MesaVisualizer:
                 .visualization-card { margin-top: 22px; }
 
                 .sidebar-card-compact {
-                    margin-bottom: 8px !important;
+                    margin-bottom: 2px !important;
+                }
+                .sidebar-card-compact .v-card {
+                    padding: 0 !important;
                 }
                 .sidebar-card-compact .v-card__title {
-                    padding: 12px 14px 0 !important;
+                    padding: 6px 10px 2px !important;
+                    font-size: 0.9rem !important;
                 }
                 .sidebar-card-compact .v-card__text {
-                    padding: 8px 14px 12px !important;
+                    padding: 4px 10px 6px !important;
                 }
                 .sidebar-card-compact .v-input {
-                    margin-top: 4px !important;
+                    margin-top: 2px !important;
                     padding-top: 0 !important;
                 }
                 .sidebar-card-compact .v-messages {
                     min-height: 0 !important;
                 }
                 .sidebar-card-compact .v-btn {
-                    min-height: 32px !important;
-                    height: 32px !important;
-                    min-width: 72px !important;
-                    padding: 0 12px !important;
-                    font-size: 0.8rem !important;
+                    min-height: 28px !important;
+                    height: 28px !important;
+                    min-width: 60px !important;
+                    padding: 0 8px !important;
+                    font-size: 0.75rem !important;
                 }
 
                 .sidebar-model-compact .v-input {
