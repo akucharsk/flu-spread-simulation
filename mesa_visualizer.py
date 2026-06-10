@@ -144,7 +144,7 @@ def right_panel(model: EpidemicModel, model_parameters: solara.Reactive[dict]):
             is_error.value = True
             last_message.value = f"Export failed: {exc}"
 
-    with solara.Card("Map presets & export", style={"height": "100%"}):
+    with solara.Card("Map presets & export", classes=["sidebar-card-compact"], style={"height": "100%"}):
         solara.Select(
             "Predefined city map",
             value=selected_map_label,
@@ -155,9 +155,8 @@ def right_panel(model: EpidemicModel, model_parameters: solara.Reactive[dict]):
         solara.Markdown(
             f"**Selected map**: {selected_map_label.value}  \n"
             f"{PREDEFINED_CITY_MAPS[selected_key]['description']}  \n"
-            "Change takes effect after **Reset**."
+            "Apply after **Reset**."
         )
-        solara.Markdown("---")
 
         solara.InputText(
             label="Output directory (created if missing)",
@@ -336,7 +335,7 @@ class MesaVisualizer:
                 solara.lab.ThemeToggle()
 
             with solara.Sidebar(), solara.Column():
-                with solara.Card("Controls"):
+                with solara.Card("Controls", classes=["sidebar-card-compact"]):
                     solara.SliderInt(
                         label="Play Interval (ms)",
                         value=reactive_play_interval,
@@ -367,21 +366,41 @@ class MesaVisualizer:
                         use_threads=reactive_use_threads,
                     )
 
-                with solara.Card("Model Parameters"):
+                with solara.Card("Model Parameters", classes=["sidebar-card-compact"]):
                     ModelCreator(
                         model,
                         model_params,
                         model_parameters=reactive_model_parameters,
                     )
 
-                with solara.Card("Live statistics"):
-                    live_stats_content(model.value)
+                right_panel(model.value, reactive_model_parameters)
 
             solara.Style(
                 """
                 .v-container { max-width: 100% !important; }
                 .simulation-main { padding: 16px; }
                 .visualization-card { margin-top: 22px; }
+
+                .sidebar-card-compact .v-card__title {
+                    padding: 12px 14px 0 !important;
+                }
+                .sidebar-card-compact .v-card__text {
+                    padding: 8px 14px 12px !important;
+                }
+                .sidebar-card-compact .v-input {
+                    margin-top: 4px !important;
+                    padding-top: 0 !important;
+                }
+                .sidebar-card-compact .v-messages {
+                    min-height: 0 !important;
+                }
+                .sidebar-card-compact .v-btn {
+                    min-height: 32px !important;
+                    height: 32px !important;
+                    min-width: 72px !important;
+                    padding: 0 12px !important;
+                    font-size: 0.8rem !important;
+                }
                 """
             )
 
@@ -392,12 +411,20 @@ class MesaVisualizer:
                             SpaceRendererComponent(model.value, renderer.value)
 
                         with solara.Card("Visualization", classes=["visualization-card"]):
-                            self._plot_callable(seir_plot)(model.value)
-                            self._plot_callable(new_exposures_plot)(model.value)
-                            self._plot_callable(cumulative_plot)(model.value)
-                            self._plot_callable(infectious_by_type_plot)(model.value)
+                            with solara.Columns([1, 1]):
+                                with solara.Column():
+                                    self._plot_callable(seir_plot)(model.value)
+                                with solara.Column():
+                                    self._plot_callable(new_exposures_plot)(model.value)
+
+                            with solara.Columns([1, 1]):
+                                with solara.Column():
+                                    self._plot_callable(cumulative_plot)(model.value)
+                                with solara.Column():
+                                    self._plot_callable(infectious_by_type_plot)(model.value)
 
                     with solara.Column():
-                        right_panel(model.value, reactive_model_parameters)
+                        with solara.Card("Live statistics", style={"height": "100%"}):
+                            live_stats_content(model.value)
 
         return page
