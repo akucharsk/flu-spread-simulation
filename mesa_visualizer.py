@@ -72,7 +72,7 @@ class MesaVisualizer:
         page = SolaraViz(
             self.model,
             renderer=self.renderer,
-            components=[health_plot, lambda: live_stats_panel(self.model)],
+            components=[health_plot, lambda m: live_stats_panel(m)],
         )
         # 3. Custom CSS to force the Solara UI to use the full screen width
         css_style = solara.Style(".v-container { max-width: 100% !important; }")
