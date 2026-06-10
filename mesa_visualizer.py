@@ -146,25 +146,15 @@ def right_panel(model: EpidemicModel, model_parameters: solara.Reactive[dict]):
 
     with solara.Card("Map presets & export", classes=["sidebar-card-compact"], style={"height": "100%"}):
         solara.Select(
-            "Predefined city map",
+            "",
             value=selected_map_label,
             values=labels,
             on_value=on_map_change,
         )
-        selected_key = label_to_key[selected_map_label.value]
-        solara.Markdown(
-            f"**Selected map**: {selected_map_label.value}  \n"
-            f"{PREDEFINED_CITY_MAPS[selected_key]['description']}  \n"
-            "Apply after **Reset**."
-        )
 
         solara.InputText(
-            label="Output directory (created if missing)",
+            label="",
             value=base_dir,
-        )
-        solara.Markdown(
-            f"Current map: **{model.map_name}**  \n"
-            f"Current step: **{model.current_step}** &middot; snapshots: **{len(model.metrics_history)}**"
         )
         solara.Button(
             label="Generate visualization",
@@ -366,7 +356,7 @@ class MesaVisualizer:
                         use_threads=reactive_use_threads,
                     )
 
-                with solara.Card("Model Parameters", classes=["sidebar-card-compact"]):
+                with solara.Card("Model Parameters", classes=["sidebar-card-compact", "sidebar-model-compact"]):
                     ModelCreator(
                         model,
                         model_params,
@@ -401,6 +391,19 @@ class MesaVisualizer:
                     padding: 0 12px !important;
                     font-size: 0.8rem !important;
                 }
+
+                .sidebar-model-compact .v-input {
+                    margin-top: 0 !important;
+                    padding-top: 0 !important;
+                }
+                .sidebar-model-compact .v-input__details {
+                    min-height: 0 !important;
+                    padding: 0 !important;
+                    margin: 0 !important;
+                }
+                .sidebar-model-compact .v-messages {
+                    display: none !important;
+                }
                 """
             )
 
@@ -410,21 +413,21 @@ class MesaVisualizer:
                         with solara.Card("Agent map"):
                             SpaceRendererComponent(model.value, renderer.value)
 
-                        with solara.Card("Visualization", classes=["visualization-card"]):
-                            with solara.Columns([1, 1]):
-                                with solara.Column():
-                                    self._plot_callable(seir_plot)(model.value)
-                                with solara.Column():
-                                    self._plot_callable(new_exposures_plot)(model.value)
-
-                            with solara.Columns([1, 1]):
-                                with solara.Column():
-                                    self._plot_callable(cumulative_plot)(model.value)
-                                with solara.Column():
-                                    self._plot_callable(infectious_by_type_plot)(model.value)
-
                     with solara.Column():
                         with solara.Card("Live statistics", style={"height": "100%"}):
                             live_stats_content(model.value)
+
+                with solara.Card("Visualization", classes=["visualization-card"]):
+                    with solara.Columns([1, 1]):
+                        with solara.Column():
+                            self._plot_callable(seir_plot)(model.value)
+                        with solara.Column():
+                            self._plot_callable(new_exposures_plot)(model.value)
+
+                    with solara.Columns([1, 1]):
+                        with solara.Column():
+                            self._plot_callable(cumulative_plot)(model.value)
+                        with solara.Column():
+                            self._plot_callable(infectious_by_type_plot)(model.value)
 
         return page
