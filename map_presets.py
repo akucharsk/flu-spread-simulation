@@ -5,30 +5,20 @@ from pathlib import Path
 _PRESET_BASE_DIR = Path(__file__).resolve().parent
 
 PREDEFINED_CITY_MAPS = {
-    "classic_test_city": {
-        "label": "Classic Block City",
-        "path": "tests/test_city.txt",
+    "classic_city": {
+        "label": "Classic City",
+        "path": "maps/city.txt",
         "description": "Baseline compact city used in tests.",
     },
-    "downtown_grid": {
-        "label": "Downtown Grid",
-        "path": "maps/downtown_grid.txt",
-        "description": "Dense mixed downtown blocks with alternating zones.",
-    },
-    "suburban_ring": {
-        "label": "Suburban Ring",
-        "path": "maps/suburban_ring.txt",
-        "description": "Outer residential ring with separated inner activity zones.",
+    "metropolis": {
+        "label": "Metropolis",
+        "path": "maps/metropolis.txt",
+        "description": "Large urban area with diverse districts and high population density.",
     },
     "campus_hub": {
         "label": "Campus Hub",
         "path": "maps/campus_hub.txt",
         "description": "Centralized education and public-space hubs with radial movement.",
-    },
-    "industrial_corridor": {
-        "label": "Industrial Corridor",
-        "path": "maps/industrial_corridor.txt",
-        "description": "Long commuting corridors between homes and work-heavy districts.",
     },
 }
 

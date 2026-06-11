@@ -265,8 +265,8 @@ class MesaVisualizer:
                 "type": "SliderInt",
                 "label": "Population",
                 "value": len(self.model.agents),
-                "min": 200,
-                "max": 20000,
+                "min": 0,
+                "max": 100000,
                 "step": 200,
             },
             "avg_household_size": {

@@ -1,0 +1,2 @@
+run_id,map_name,steps_requested,steps_executed,population,peak_infectious,peak_infectious_step,final_susceptible,final_exposed,final_infectious,final_recovered,total_ever_infected
+1,Campus Hub,68,68,48600,2964,68,34293,1731,2964,9612,14307
