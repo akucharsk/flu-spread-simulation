@@ -129,7 +129,7 @@ After `main_simulation.py` finishes, these files are generated in `outputDir`:
 - `infectious_per_run.png` - infectious curve for each run
 - `peak_infectious_histogram.png` - distribution of infection peaks across runs
 
-Example of generated artifacts was putted in `output` directory.
+The example of generated artifacts was put in `output` directory.
 
 ## 🖥️ Live Interactive Stats
 
