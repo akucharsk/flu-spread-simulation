@@ -1,5 +1,8 @@
-mesa[rec]
+mesa
+matplotlib
 pygame
+pandas
 pytest
 pytest-cov
 flake8
+networkx

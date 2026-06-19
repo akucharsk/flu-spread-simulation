@@ -1,0 +1,13 @@
+{
+  "cityMapPath": "maps/campus_30.txt",
+  "cityMapPreset": "academic_campus",
+  "population": 10000,
+  "steps": 300,
+  "runs": 5,
+  "outputDir": "output",
+  "figsize": [20, 20],
+  "agentSize": 10,
+  "startTime": 10,
+  "timestep": 0.1,
+  "verbose": false
+}
