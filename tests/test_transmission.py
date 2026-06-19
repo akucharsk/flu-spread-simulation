@@ -5,7 +5,12 @@ import pytest
 from model import EpidemicModel
 from agents import PersonAgent
 from states import HealthState
-from agent_types import AgentType, FAMILY_INTERACTION_MULTIPLIER, MAX_TRANSMISSION_DISTANCE
+from agent_types import (
+    AgentType,
+    FAMILY_INTERACTION_MULTIPLIER,
+    FRIEND_INTERACTION_MULTIPLIER,
+    MAX_TRANSMISSION_DISTANCE,
+)
 
 TEST_CITY = "tests/test_city.txt"
 
@@ -140,20 +145,89 @@ def test_household_creation():
 
     assert len(household_ids) > 1
 
-    for agent in model.agents:
-        assert len(agent.family_members) >= 0
-        for family_member in agent.family_members:
-            assert family_member.household_id == agent.household_id
+    # is_household_member should be reflexive on the same id and false across
+    # different households.
+    agents_list = list(model.agents)
+    for agent in agents_list:
+        for other in agents_list:
+            if agent is other:
+                continue
+            if agent.household_id == other.household_id:
+                assert agent.is_household_member(other)
+            else:
+                assert not agent.is_household_member(other)
 
 
-def test_torus_distance_calculation():
-    """Test that distance function accounts for torus topology"""
+def test_friend_relation_is_symmetric():
+    """is_friend_of should be symmetric and match friends_id equality."""
+    model = EpidemicModel(
+        city_map_path=TEST_CITY,
+        population=20,
+        avg_friend_group_size=3,
+    )
+    agents_list = list(model.agents)
+    for agent in agents_list:
+        assert agent.friends_id is not None
+        for other in agents_list:
+            if agent is other:
+                continue
+            assert agent.is_friend_of(other) == other.is_friend_of(agent)
+            assert agent.is_friend_of(other) == (
+                agent.friends_id == other.friends_id
+            )
+
+
+def test_family_relation_uses_family_id_not_household():
+    """is_family_member must follow family_id, not household_id."""
+    model = EpidemicModel(city_map_path=TEST_CITY, population=4)
+    a, b = list(model.agents)[:2]
+
+    # Manually align household but split family.
+    a.household_id = b.household_id = 99
+    a.family_id = 1
+    b.family_id = 2
+    assert not a.is_family_member(b)
+    assert a.is_household_member(b)
+
+    # And vice versa: same family but different homes.
+    a.household_id = 10
+    b.household_id = 20
+    a.family_id = b.family_id = 7
+    assert a.is_family_member(b)
+    assert not a.is_household_member(b)
+
+
+def test_transmission_probability_friend_multiplier():
+    """Friend members should have a higher transmission probability."""
     model = EpidemicModel(city_map_path=TEST_CITY, population=2)
     agent = list(model.agents)[0]
 
-    # grid is 10x10; torus distance from (0,0) to (9,0) should be 1, not 9
-    distance = agent.get_distance((0, 0), (9, 0))
-    assert distance == 1.0
+    prob_neutral = agent.calculate_transmission_probability(
+        distance=2.0, is_family=False, is_friend=False
+    )
+    prob_friend = agent.calculate_transmission_probability(
+        distance=2.0, is_family=False, is_friend=True
+    )
+    prob_family = agent.calculate_transmission_probability(
+        distance=2.0, is_family=True, is_friend=False
+    )
 
-    distance = agent.get_distance((0, 0), (0, 9))
-    assert distance == 1.0
+    assert prob_friend > prob_neutral
+    assert prob_family > prob_friend
+    # Family multiplier should win if both are set.
+    prob_both = agent.calculate_transmission_probability(
+        distance=2.0, is_family=True, is_friend=True
+    )
+    assert prob_both == prob_family
+
+
+def test_non_torus_distance_calculation():
+    """The city grid is non-torus, so distance is plain Euclidean."""
+    model = EpidemicModel(city_map_path=TEST_CITY, population=2)
+    agent = list(model.agents)[0]
+
+    # grid is 10x10 but MultiGrid is created with torus=False - opposite
+    # corners on the same row should be 9 cells apart, not 1.
+    assert agent.get_distance((0, 0), (9, 0)) == 9.0
+    assert agent.get_distance((0, 0), (0, 9)) == 9.0
+    assert agent.get_distance((1, 2), (4, 6)) == 5.0

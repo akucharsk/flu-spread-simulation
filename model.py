@@ -4,7 +4,7 @@ from mesa.space import PropertyLayer
 import numpy as np
 
 from agents import PersonAgent
-from agent_types import AgentType, AGENT_CONFIG
+from agent_types import AGENT_CONFIG, AgentType, DEFAULT_AVG_FRIEND_GROUP_SIZE, DEFAULT_AVG_FAMILY_SIZE
 import random
 
 from city_utils import build_city_grid, load_city_map
@@ -28,6 +28,8 @@ class EpidemicModel(Model):
         city_map_preset=None,
         population=2000,
         avg_household_size=3,
+        avg_family_size=DEFAULT_AVG_FAMILY_SIZE,
+        avg_friend_group_size=DEFAULT_AVG_FRIEND_GROUP_SIZE,
         time_of_day=10, # 10:00
         timestep=0.5, # hour
         verbose=False,
@@ -42,6 +44,8 @@ class EpidemicModel(Model):
         self.width = self.grid.width
         self.height = self.grid.height
         self.avg_household_size = avg_household_size
+        self.avg_family_size = max(1, int(avg_family_size))
+        self.avg_friend_group_size = max(1, int(avg_friend_group_size))
 
         self.running = True
         self.current_step = 0
@@ -77,18 +81,34 @@ class EpidemicModel(Model):
                 self,
                 agent_type=agent_type,
                 infection_rate=params.infection_rate,
-                mobility=params.mobility
+                mobility=params.mobility,
+                work_time=params.active_hours,
+                day_destination=params.active_destination,
             )
-            
+
             agents_list.append(agent)
-            
+
             self.place_agent_in_city(agent)
 
-        # Create family groups (social network - static links)
+        # Spatial assignments (where each agent lives / studies / works).
+        # No transmission boost comes from these on their own.
         self._create_households(agents_list)
-        self._create_workplaces(
-            [agent for agent in agents_list if agent.agent_type in [AgentType.WORKER, AgentType.HEALTHCARE]]
-        )
+        for cell_type, id_attribute, agent_types in (
+            (CellType.WORKPLACE, "workplace_id", (AgentType.WORKER, AgentType.HEALTHCARE)),
+            (CellType.UNIVERSITY, "university_id", (AgentType.STUDENT,)),
+            (CellType.SCHOOL,     "school_id",     (AgentType.CHILDREN,)),
+        ):
+            self._assign_to_cells(
+                [a for a in agents_list if a.agent_type in agent_types],
+                cell_type=cell_type,
+                id_attribute=id_attribute,
+            )
+
+        # Independent logical groups for transmission multipliers:
+        #   family (2x) - relatives, may live in different households
+        #   friends (1.5x) - small social circles
+        self._create_family_groups(agents_list)
+        self._create_friend_groups(agents_list)
 
         # Infect one initial agent
         patient_zero = random.choice(agents_list)
@@ -174,78 +194,168 @@ class EpidemicModel(Model):
             height=self.height,
             default_value=CellType.DEFAULT.value,
         )
-        household_id = 1
-        workplace_id = 1
-        publicspace_id = 1
+        # Each typed-cell kind gets its own monotonically increasing id space.
+        next_id = {
+            CellType.HOUSEHOLD: 1,
+            CellType.WORKPLACE: 1,
+            CellType.PUBLIC_SPACE: 1,
+            CellType.UNIVERSITY: 1,
+            CellType.SCHOOL: 1,
+        }
         for pos, (t, _) in self.location_data.items():
-            value = 0
             self.type_property_layer.set_cell(pos, t.value)
-            match t:
-                case CellType.HOUSEHOLD:
-                    value = household_id
-                    household_id += 1
-                case CellType.WORKPLACE:
-                    value = workplace_id
-                    workplace_id += 1
-                case CellType.PUBLIC_SPACE:
-                    value = publicspace_id
-                    publicspace_id += 1
+            if t in next_id:
+                value = next_id[t]
+                next_id[t] += 1
+            else:
+                value = 0
             self.location_data[pos] = (t, value)
         self.grid.add_property_layer(self.type_property_layer)
 
     def _create_households(self, agents_list):
         """
-        Create family groups (households) where members have higher
-        interaction risk (static social network links).
+        Assign every agent to a household cell (spatial home). household_id is
+        the physical place where the agent goes back at night; it grants no
+        transmission boost on its own.
+
+        While we're partitioning the population into households we also seed a
+        *social* link between co-residents:
+          - households whose members are ALL students -> shared friends_id
+            (roommate / dorm-style flat)
+          - all other households -> shared family_id (regular family, even if
+            the household happens to include a student living with parents)
+
+        These seeded ids are continued (not overwritten) by
+        _create_family_groups / _create_friend_groups later, so single-person
+        or student-only households still receive an extended family / friend
+        circle assigned at random.
         """
         agents_copy = agents_list.copy()
         random.shuffle(agents_copy)
-        
+
         households = self.get_cells(CellType.HOUSEHOLD)
         household_sizes = np.ones(len(households), dtype=int)
-        
+
         if len(households) < len(agents_copy):
             for _ in range(len(agents_copy) - len(households)):
                 household_idx = random.randrange(0, len(households))
                 household_sizes[household_idx] += 1
-        
+
+        next_family_id = 1
+        next_friends_id = 1
         for idx, household_size in enumerate(household_sizes):
             household = agents_copy[:household_size]
             agents_copy = agents_copy[household_size:]
-            
+
             household_pos = households[idx]
             (_, household_id) = self.location_data[household_pos]
 
             for agent in household:
                 agent.household_id = household_id
-                agent.family_members = [a for a in household if a != agent]
-                
-    def _create_workplaces(self, workers_list):
-        """
-        Create family groups (households) where members have higher
-        interaction risk (static social network links).
-        """
-        agents_copy = workers_list.copy()
-        random.shuffle(agents_copy)
-        
-        workplaces = self.get_cells(CellType.WORKPLACE)
-        workplace_sizes = np.ones(len(workplaces), dtype=int)
-        
-        if len(workplaces) < len(workers_list):
-            for _ in range(len(agents_copy) - len(workplaces)):
-                workplace_idx = random.randrange(0, len(workplaces))
-                workplace_sizes[workplace_idx] += 1
-        
-        for idx, workplace_size in enumerate(workplace_sizes):
-            workplace = agents_copy[:workplace_size]
-            agents_copy = agents_copy[workplace_size:]
-            
-            workplace_pos = workplaces[idx]
-            (_, workplace_id) = self.location_data[workplace_pos]
 
-            for agent in workplace:
-                agent.workplace_id = workplace_id
-                agent.family_members = [a for a in workplace if a != agent]
+            # Co-residents must share at least one logical link.
+            all_students = all(a.agent_type == AgentType.STUDENT for a in household)
+            if all_students:
+                for agent in household:
+                    agent.friends_id = next_friends_id
+                next_friends_id += 1
+            else:
+                for agent in household:
+                    agent.family_id = next_family_id
+                next_family_id += 1
+
+        # Hand the next-id counters off to the random-group helpers so the id
+        # spaces don't overlap.
+        self._next_family_id = next_family_id
+        self._next_friends_id = next_friends_id
+
+    def _assign_to_cells(self, agents_list, cell_type, id_attribute):
+        """Distribute the given agents across all cells of ``cell_type``.
+
+        Writes the cell's id into ``id_attribute`` on every assigned agent.
+        Acts as a no-op if the loaded map has no cells of that type, leaving
+        the attribute as ``None`` (graceful fallback during ``move``).
+        """
+        if not agents_list:
+            return
+        cells = self.get_cells(cell_type)
+        if not cells:
+            # Map doesn't contain this destination type - leave the id None
+            # and let the agent wander instead of crashing.
+            return
+
+        agents_copy = agents_list.copy()
+        random.shuffle(agents_copy)
+
+        cell_sizes = np.ones(len(cells), dtype=int)
+        if len(cells) < len(agents_copy):
+            for _ in range(len(agents_copy) - len(cells)):
+                cell_sizes[random.randrange(len(cells))] += 1
+
+        for idx, group_size in enumerate(cell_sizes):
+            group = agents_copy[:group_size]
+            agents_copy = agents_copy[group_size:]
+
+            cell_pos = cells[idx]
+            (_, cell_id) = self.location_data[cell_pos]
+
+            for agent in group:
+                setattr(agent, id_attribute, cell_id)
+
+    def _create_workplaces(self, workers_list):
+        """Backwards-compatible alias kept for tests/other callers; prefer
+        ``_assign_to_cells`` directly with the desired cell type."""
+        self._assign_to_cells(workers_list, CellType.WORKPLACE, "workplace_id")
+
+    def _create_family_groups(self, agents_list):
+        """
+        Give every agent who isn't already part of a household-seeded family
+        a random extended-family group of about avg_family_size members.
+        Existing family_id assignments (from non-student households) are left
+        intact, so a student living with friends still gets a family group
+        living elsewhere.
+        """
+        unassigned = [a for a in agents_list if a.family_id is None]
+        self._next_family_id = self._assign_random_groups(
+            unassigned,
+            attribute="family_id",
+            avg_size=self.avg_family_size,
+            start_id=getattr(self, "_next_family_id", 1),
+        )
+
+    def _create_friend_groups(self, agents_list):
+        """
+        Give every agent who isn't already part of a household-seeded friend
+        circle (i.e. who isn't in an all-student household) a random friend
+        group of about avg_friend_group_size members.
+        """
+        unassigned = [a for a in agents_list if a.friends_id is None]
+        self._next_friends_id = self._assign_random_groups(
+            unassigned,
+            attribute="friends_id",
+            avg_size=self.avg_friend_group_size,
+            start_id=getattr(self, "_next_friends_id", 1),
+        )
+
+    @staticmethod
+    def _assign_random_groups(
+        agents_list, attribute: str, avg_size: int, start_id: int = 1,
+    ) -> int:
+        """Shuffle agents and chop them into chunks of ~avg_size, writing the
+        chunk index to ``attribute`` on every agent in the chunk. Returns the
+        next free id (so callers can chain calls and keep id spaces disjoint).
+        """
+        if not agents_list:
+            return start_id
+        agents_copy = agents_list.copy()
+        random.shuffle(agents_copy)
+        group_size = max(1, int(avg_size))
+        next_id = start_id
+        for start in range(0, len(agents_copy), group_size):
+            for agent in agents_copy[start:start + group_size]:
+                setattr(agent, attribute, next_id)
+            next_id += 1
+        return next_id
                         
     def get_cells(self, cell_type):
         return [
@@ -265,22 +375,35 @@ class EpidemicModel(Model):
         return matching_cell[0]
             
     def place_agent_in_city(self, agent):
-        household_cells = self.get_cells(CellType.HOUSEHOLD)
+        # Spawn agents preferring residential / public areas so they look
+        # plausible at t=0. We use any cell type that is available on the
+        # currently loaded map (some maps lack workplaces, public spaces etc).
+        weighted_choices = [
+            (CellType.HOUSEHOLD,    0.60),
+            (CellType.WORKPLACE,    0.15),
+            (CellType.PUBLIC_SPACE, 0.10),
+            (CellType.UNIVERSITY,   0.075),
+            (CellType.SCHOOL,       0.075),
+        ]
+        # Filter to types that actually exist on the map.
+        available = [
+            (cells, weight) for ctype, weight in weighted_choices
+            for cells in [self.get_cells(ctype)] if cells
+        ]
+        if not available:
+            raise RuntimeError("Map has no placeable cells (no household/public/etc.)")
 
-        workplace_cells = self.get_cells(CellType.WORKPLACE)
+        total_weight = sum(w for _, w in available)
+        r = random.random() * total_weight
+        accumulator = 0.0
+        chosen_cells = available[-1][0]
+        for cells, weight in available:
+            accumulator += weight
+            if r <= accumulator:
+                chosen_cells = cells
+                break
 
-        public_cells = self.get_cells(CellType.PUBLIC_SPACE)
-
-        r = random.random()
-
-        if r < 0.6:
-            pos = random.choice(household_cells)
-        elif r < 0.9:
-            pos = random.choice(workplace_cells)
-        else:
-            pos = random.choice(public_cells)
-
-        self.grid.place_agent(agent, pos)
+        self.grid.place_agent(agent, random.choice(chosen_cells))
     
     def update_time(self):
         self.time_of_day += self.timestep
@@ -290,13 +413,16 @@ class EpidemicModel(Model):
             self.time_of_day -= 24
         
     def update_agents_based_on_time(self):
+        """Send each agent home or to their day destination based on their
+        configured ``work_time`` window. Agents without an active schedule
+        (e.g. seniors) are left alone."""
         for agent in self.agents:
-            if not agent.work_time:
+            if not agent.work_time or not agent.day_destination:
                 continue
             if agent.work_time.end <= self.time_of_day:
                 agent.target_destination = CellType.HOUSEHOLD
-            elif agent.work_time.end >= self.time_of_day >= agent.work_time.start:
-                agent.target_destination = CellType.WORKPLACE
+            elif agent.work_time.start <= self.time_of_day <= agent.work_time.end:
+                agent.target_destination = agent.day_destination
 
     def step(self):
         prev_susceptible = self.get_health_counts()["susceptible"]

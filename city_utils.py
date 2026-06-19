@@ -20,10 +20,12 @@ def build_city_grid(model, city_map):
     grid = MultiGrid(width, height, torus=False)
 
     model.cell_types = {
+        "0": CellType.DEFAULT,
         "1": CellType.HOUSEHOLD,
         "2": CellType.WORKPLACE,
         "3": CellType.PUBLIC_SPACE,
-        "0": CellType.DEFAULT,
+        "4": CellType.UNIVERSITY,
+        "5": CellType.SCHOOL,
     }
     model.cell_type_ids = {
         t: id for id, t in model.cell_types.items()

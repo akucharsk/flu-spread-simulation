@@ -1,12 +1,18 @@
+"""Interactive entry point for the flu spread simulation.
+
+Launches a local Pygame window with the model running live.
+"""
 import argparse
 import json
 
-from mesa_visualizer import MesaVisualizer
 from model import EpidemicModel
+from pygame_visualizer import PygameVisualizer
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Run flu spread simulation with live visualization")
+    parser = argparse.ArgumentParser(
+        description="Run flu spread simulation with a live Pygame visualization",
+    )
     parser.add_argument("--config", default="config.json", help="Path to config file")
     args, _ = parser.parse_known_args()
 
@@ -22,13 +28,15 @@ def main():
         verbose=config.get("verbose", False),
     )
 
-    visualizer = MesaVisualizer(
+    window_size = tuple(config.get("windowSize", (1600, 900)))
+    visualizer = PygameVisualizer(
         model=model,
         figsize=tuple(config.get("figsize", (12, 9))),
-        agent_size=config.get("agentSize", 20),
+        agent_size=config.get("agentSize", 6),
+        window_size=window_size,
     )
-    return visualizer
+    visualizer.run()
 
 
-visualizer = main()
-Page = visualizer.run()
+if __name__ == "__main__":
+    main()

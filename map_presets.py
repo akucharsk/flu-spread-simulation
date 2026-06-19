@@ -8,27 +8,32 @@ PREDEFINED_CITY_MAPS = {
     "classic_test_city": {
         "label": "Classic Block City",
         "path": "tests/test_city.txt",
-        "description": "Baseline compact city used in tests.",
+        "description": "Baseline compact city used by the test suite.",
     },
-    "downtown_grid": {
-        "label": "Downtown Grid",
-        "path": "maps/downtown_grid.txt",
-        "description": "Dense mixed downtown blocks with alternating zones.",
+    "campus_30": {
+        "label": "Academic Campus (30x30)",
+        "path": "maps/campus_30.txt",
+        "description": "Small university campus: two big lecture halls, a school and dormitories.",
     },
-    "suburban_ring": {
-        "label": "Suburban Ring",
-        "path": "maps/suburban_ring.txt",
-        "description": "Outer residential ring with separated inner activity zones.",
+    "suburban_town_60": {
+        "label": "Suburban Town (60x60)",
+        "path": "maps/suburban_town_60.txt",
+        "description": "Quiet town with scattered houses, two schools, one university and a few workplaces.",
     },
-    "campus_hub": {
-        "label": "Campus Hub",
-        "path": "maps/campus_hub.txt",
-        "description": "Centralized education and public-space hubs with radial movement.",
+    "mixed_district_100": {
+        "label": "Mixed District (100x100)",
+        "path": "maps/mixed_district_100.txt",
+        "description": "Balanced urban district: residential blocks, offices, schools and parks intermixed.",
     },
-    "industrial_corridor": {
-        "label": "Industrial Corridor",
-        "path": "maps/industrial_corridor.txt",
-        "description": "Long commuting corridors between homes and work-heavy districts.",
+    "industrial_corridor_150": {
+        "label": "Industrial Corridor (150x150)",
+        "path": "maps/industrial_corridor_150.txt",
+        "description": "Work-heavy belt of large industrial sites, worker housing and a couple of schools.",
+    },
+    "megacity_200": {
+        "label": "Megacity (200x200)",
+        "path": "maps/megacity_200.txt",
+        "description": "Full metropolitan area with every infrastructure type and broad arterial roads.",
     },
 }
 
