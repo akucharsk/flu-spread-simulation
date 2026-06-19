@@ -1,6 +1,6 @@
 {
   "cityMapPath": "maps/campus_30.txt",
-  "cityMapPreset": "academic_campus",
+  "cityMapPreset": "campus_30",
   "population": 10000,
   "steps": 300,
   "runs": 5,
