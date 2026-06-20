@@ -1,0 +1,188 @@
+===============================================================================
+FLU SPREAD SIMULATION - APPLICATION OVERVIEW
+===============================================================================
+
+The application is an agent-based influenza simulator built on the Mesa
+framework, with an interactive Pygame GUI and a separate headless (CLI)
+mode for generating data for post-hoc analysis. The code is split into
+thin, single-responsibility modules so the model logic can be modified
+independently of the presentation layer, the data-export layer or the
+procedural map generation.
+
+-------------------------------------------------------------------------------
+1. PROJECT MODULES (one sentence each)
+-------------------------------------------------------------------------------
+
+Model core
+  - states.py             HealthState (S/E/I/R) and CellType (default,
+                          household, workplace, public_space, university,
+                          school) enums - the shared vocabulary used across
+                          the project.
+  - agent_types.py        Definitions of the five agent types (STUDENT,
+                          WORKER, SENIOR, HEALTHCARE, CHILDREN) together
+                          with their mobility, infection_rate, active hours
+                          and day destination, plus the transmission
+                          constants and the build_agent_config() helper for
+                          runtime overrides.
+  - agents.py             PersonAgent class: moves around the allowed cells,
+                          computes per-pair infection probability (family
+                          x2, friends x1.5, linear distance decay) and
+                          updates its own health state every step.
+  - model.py              EpidemicModel class: builds the grid, places
+                          agents (HOUSEHOLD / DEFAULT / WORKPLACE /
+                          PUBLIC_SPACE / UNIVERSITY / SCHOOL), assigns
+                          households / universities / schools / workplaces,
+                          forms family and friend groups, manages the
+                          time-of-day clock and collects metrics through
+                          Mesa's DataCollector.
+
+Maps
+  - city_utils.py         load_city_map() and build_city_grid() turn a
+                          text map file into a Mesa grid plus a
+                          location_data dictionary enriched with each
+                          cell's type and id.
+  - map_presets.py        Catalogue of predefined maps (PREDEFINED_CITY_MAPS)
+                          and the resolve_city_map_path() helper that
+                          decides whether to load a preset or a user-supplied
+                          path.
+  - maps/_generate_maps.py
+                          Script that re-generates all five bundled map
+                          presets (campus_30, suburban_town_60,
+                          mixed_district_100, industrial_corridor_150,
+                          megacity_200) using fixed seeds so the output
+                          is reproducible.
+
+Entry points
+  - main_simulation.py    Headless mode: reads config.json plus CLI overrides
+                          (population, household, family, friend group, map,
+                          start time, timestep, max_transmission_distance,
+                          per-type mobility, per-type infection_rate) and
+                          writes the full artifact set (CSV, JSON, plots).
+  - main_visualization.py Launches the interactive Pygame GUI.
+  - main.py               Thin stub that reminds the user of the two real
+                          entry points above.
+
+Data analysis
+  - analytics.py          run_simulation_collect() and export_artifacts() -
+                          the pipeline's heart: builds a model, runs the
+                          simulation, packs the results into consistent
+                          CSV/JSON files and generates both the live plots
+                          (the four dynamic charts) and the batch plots
+                          (mean +/- std, histograms).
+  - time_utils.py         format_time_ampm() that converts a 24h float
+                          into a readable 12h AM/PM string
+                          (e.g. 13.5 -> "1:30pm").
+
+GUI
+  - pygame_visualizer.py  The entire Pygame layer: sidebar controls, agent
+                          map, live statistics panel, four live plots,
+                          mouse/keyboard event handling, export system and
+                          dynamic legends.
+  - visualization.py      Leftover from the first minimal viewer (no longer
+                          wired anywhere - kept for reference only).
+
+Experiment pipeline (drives the reports)
+  - experiments/run_overview_analysis.py + analyze_overview.py
+                          Part 1 of the reports: small campus, 3 runs,
+                          model validation (SEIR curve, hour-of-day
+                          rhythm, sanity checklist).
+  - experiments/run_param_sweep.py + analyze_results.py
+                          Part 2 of the reports: 3 maps x structural
+                          parameter variations (population, household,
+                          friend group) with comparison plots and a
+                          markdown report.
+  - experiments/run_param_sweep_part2.py + analyze_results_part2.py
+                          Part 3 of the reports: transmission and
+                          per-type mobility / infection_rate scenarios
+                          (short_range, long_range, low/high_infection,
+                          lockdown, kids_at_home, ppe_healthcare).
+
+Utilities
+  - cli/create_city_map.py
+                          Mini CLI that procedurally generates a single
+                          parameterised map outside the bundled maps/ folder.
+  - tests/                Pytest suite covering transmission, agent
+                          movement, model construction and test map
+                          fixtures.
+
+-------------------------------------------------------------------------------
+2. GUI LAYOUT - 4 MAIN PANELS
+-------------------------------------------------------------------------------
+
+Running `python main_visualization.py` opens a Pygame window (1600x900
+by default) divided into four sections:
+
+  +------------------------------------------------------------------------+
+  |  [1] PARAMETER     |   [2] MAIN AGENT MAP        |  [3] LIVE STATS    |
+  |      CONTROL       |                              |       PANEL        |
+  |      PANEL         |   City map + agents          |  S/E/I/R bars,     |
+  |                    |   with cell-type legend +    |  counters, peak,   |
+  |  Sliders, dropdowns|   dot-colour legend (heatmap |  infectious by     |
+  |  Play/Step/Reset,  |   or severity)               |  agent type        |
+  |  export buttons.   |                              |                    |
+  |                    |------------------------------+--------------------|
+  |                    |  [4] LIVE PLOT PANEL  (four 2x2 charts)          |
+  |                    |                                                   |
+  |                    |  S/E/I/R   |  New exposures per step             |
+  |                    |  Cumulative|  Infectious by agent type           |
+  +--------------------+--------------------------------------------------+
+
+-------------------------------------------------------------------------------
+2.1. PARAMETER CONTROL / MANAGEMENT PANEL   (left side)
+-------------------------------------------------------------------------------
+
+The main entry point for the user. Sim controls live here (Play / Step /
+Reset) together with every knob that defines the run: structural
+parameters (population, household / family / friend group sizes, start
+time, timestep), transmission parameters (max transmission distance,
+plus per-agent-type mobility and infection rate selected via a
+dropdown), the active map preset or a custom .txt map loader, the
+agent-dot colouring mode and two buttons for exporting plots and data.
+
+-------------------------------------------------------------------------------
+2.2. MAIN VISUALIZATION (AGENT MAP)   (centre)
+-------------------------------------------------------------------------------
+
+The city itself. Cells are painted by type (street, household,
+workplace, public space, university, school) and agents are drawn as
+dots whose colour reflects either a per-cell infection heatmap or the
+worst health state in the cell. A header above shows the current step
+and time of day; a dynamic legend below it explains both the dot
+colouring and the cell colours.
+
+-------------------------------------------------------------------------------
+2.3. LIVE STATISTICS PANEL   (top-right)
+-------------------------------------------------------------------------------
+
+Numeric snapshot of the simulation. Top counters track step, time of
+day, population, new exposures this step, peak infectious so far and
+cumulative infected. Below them four S/E/I/R bars show the share of
+each health state in the population, and an "Infectious by agent type"
+list tells you which group is currently carrying the outbreak.
+
+-------------------------------------------------------------------------------
+2.4. LIVE PLOT VISUALIZATION PANEL   (bottom, four 2x2 charts)
+-------------------------------------------------------------------------------
+
+Four time-series charts updated as the simulation advances: the SEIR
+curves, new exposures per step (early-warning signal for the
+transmission peak), cumulative infected (running attack rate) and
+infectious split by agent type. The X axis is labelled both with the
+step number and the corresponding time of day in AM/PM.
+
+-------------------------------------------------------------------------------
+QUICK USER WORKFLOW
+-------------------------------------------------------------------------------
+
+  1. Launch the GUI:   python main_visualization.py
+  2. Pick the population, map and per-agent parameters in the sidebar.
+  3. Press Reset to apply the changes.
+  4. Press Play (or Space) and watch the SEIR curve grow in the live
+     stats panel and the live plots; the map shows where the infection
+     hotspots are.
+  5. Hit "Export data (CSV/JSON)" and "Export plots" to save the
+     results for later analysis.
+  6. Alternatively run a batch sweep without the GUI:
+        python main_simulation.py --steps 200 --runs 5 --output-dir ...
+     or use the ready-made scripts in experiments/ that produce the
+     three-part markdown reports with comparison plots.

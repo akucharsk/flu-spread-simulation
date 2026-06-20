@@ -192,21 +192,36 @@ Keyboard shortcuts: `Space` = play/pause, `→` or `N` = single step, `R` = rese
 ## 📁 Project Structure
 
 ```
-├── agent_types.py          # Agent types and configuration (STUDENT, WORKER, CHILDREN, SENIOR, HEALTHCARE)
-├── agents.py               # PersonAgent implementation with disease logic
-├── model.py                # EpidemicModel - grid, households, initialization
-├── states.py               # HealthState enum (SUSCEPTIBLE, EXPOSED, INFECTIOUS, RECOVERED)
-├── main_simulation.py      # Headless entry point  (python main_simulation.py --steps N)
-├── main_visualization.py   # Interactive entry point (python main_visualization.py)
-├── pygame_visualizer.py    # Pygame GUI: map + stats + plots + controls
-├── city_utils.py           # City map loading and grid construction
-├── config.json             # Default simulation configuration
-├── requirements.txt        # Python dependencies
-└── tests/                  # Unit and functional tests
+├── agent_types.py              # AgentType enum + per-type parameters (mobility, infection_rate, active hours, destination), transmission constants and build_agent_config() for runtime overrides
+├── agents.py                   # PersonAgent: movement, neighbour-aware infection, recovery
+├── model.py                    # EpidemicModel: grid, households / workplaces / universities / schools, family + friend groups, DataCollector, time-of-day scheduling
+├── states.py                   # HealthState and CellType enums
+├── city_utils.py               # load_city_map, build_city_grid (text map -> Mesa grid + location_data)
+├── map_presets.py              # PREDEFINED_CITY_MAPS catalog + resolve_city_map_path() helper
+├── time_utils.py               # format_time_ampm() (12h AM/PM formatting used in GUI + plots)
+├── analytics.py                # run_simulation_collect(), CSV/JSON export, live and batch plot generation
+├── pygame_visualizer.py        # Pygame GUI: sidebar controls, agent map, live stats panel, live plot panel
+├── visualization.py            # Legacy minimal pygame viewer (kept for reference, not wired anywhere)
+├── main.py                     # Stub printing the entry points to use
+├── main_simulation.py          # Headless CLI (`python main_simulation.py --steps N --runs M --output-dir ...`) with parameter overrides
+├── main_visualization.py       # Launches the interactive Pygame GUI
+├── config.json                 # Default simulation configuration
+├── requirements.txt            # Python dependencies
+├── cli/
+│   └── create_city_map.py      # Single-map procedural generator CLI
+├── maps/                       # Bundled procedurally-generated maps
+│   ├── _generate_maps.py       # Re-generate all presets (fixed seeds)
+│   ├── campus_30.txt           # 30×30 academic campus
+│   ├── suburban_town_60.txt    # 60×60 quiet town
+│   ├── mixed_district_100.txt  # 100×100 mixed urban district
+│   ├── industrial_corridor_150.txt  # 150×150 industrial corridor
+│   └── megacity_200.txt        # 200×200 full metropolis
+└── tests/                      # Unit and functional tests
     ├── test_transmission.py
     ├── test_agents.py
     ├── test_model.py
-    └── test_city.txt       # Minimal city map fixture used by tests
+    ├── test_city.txt           # Small map fixture
+    └── test_city_full.txt      # Map fixture with all cell types (0-5)
 ```
 
 ## 🔄 Agent Behavior (Per Step)

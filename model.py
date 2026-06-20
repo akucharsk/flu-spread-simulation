@@ -433,15 +433,19 @@ class EpidemicModel(Model):
         return matching_cell[0]
             
     def place_agent_in_city(self, agent):
-        # Spawn agents preferring residential / public areas so they look
-        # plausible at t=0. We use any cell type that is available on the
-        # currently loaded map (some maps lack workplaces, public spaces etc).
+        # Spawn agents across all walkable cell types so the t=0 snapshot
+        # is plausible: most people are at home or already at their day
+        # destination, but a meaningful slice is "in transit" on DEFAULT
+        # (street) cells - real cities always have agents on the move,
+        # not just clustered inside buildings.
+        # Weights are interpreted relatively (the code normalises them).
         weighted_choices = [
-            (CellType.HOUSEHOLD,    0.60),
-            (CellType.WORKPLACE,    0.15),
-            (CellType.PUBLIC_SPACE, 0.10),
-            (CellType.UNIVERSITY,   0.075),
-            (CellType.SCHOOL,       0.075),
+            (CellType.HOUSEHOLD,    0.42),  # most people at home
+            (CellType.DEFAULT,      0.30),  # ~1/3 of agents start on streets
+            (CellType.WORKPLACE,    0.105),
+            (CellType.PUBLIC_SPACE, 0.07),
+            (CellType.UNIVERSITY,   0.0525),
+            (CellType.SCHOOL,       0.0525),
         ]
         # Filter to types that actually exist on the map.
         available = [
