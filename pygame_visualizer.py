@@ -313,7 +313,7 @@ class Dropdown(Widget):
         self.open = False
 
     def _box_rect(self):
-        return pygame.Rect(self.rect.x, self.rect.y + 16, self.rect.width, self.rect.height - 16)
+        return pygame.Rect(self.rect.x, self.rect.y + 22, self.rect.width, self.rect.height - 22)
 
     def _options_rect(self):
         box = self._box_rect()
@@ -629,13 +629,13 @@ class PygameVisualizer:
         self._agent_type_keys = [a.value for a in AgentType]
         type_labels = [a.value.capitalize() for a in AgentType]
         self.agent_type_dropdown = Dropdown(
-            (pad, y, width, 16 + 28),
+            (pad, y, width, 22 + 28),
             "Agent type to edit", type_labels, self.selected_agent_type_idx,
             on_change=self._select_agent_type_for_edit,
         )
         self.widgets.append(self.agent_type_dropdown)
         self.dropdowns.append(self.agent_type_dropdown)
-        y += 16 + 28 + 6
+        y += 22 + 28 + 6
 
         current_key = self._agent_type_keys[self.selected_agent_type_idx]
         self.mobility_slider = Slider(
@@ -667,13 +667,13 @@ class PygameVisualizer:
         except ValueError:
             current_mode_idx = 0
         self.dot_mode_dropdown = Dropdown(
-            (pad, y, width, 16 + 28),
+            (pad, y, width, 22 + 28),
             "Dot colouring", mode_labels, current_mode_idx,
             on_change=lambda i: setattr(self, "dot_color_mode", mode_keys[i]),
         )
         self.widgets.append(self.dot_mode_dropdown)
         self.dropdowns.append(self.dot_mode_dropdown)
-        y += 16 + 28 + 12
+        y += 22 + 28 + 12
 
         # --- Map preset section --------------------------------------
         self._section_map_y = y
@@ -685,13 +685,13 @@ class PygameVisualizer:
         except (ValueError, TypeError):
             current_idx = 0
         self.map_dropdown = Dropdown(
-            (pad, y, width, 16 + 28),
+            (pad, y, width, 22 + 28),
             "Map preset", preset_labels, current_idx,
             on_change=lambda i: self._select_preset(preset_keys[i]),
         )
         self.widgets.append(self.map_dropdown)
         self.dropdowns.append(self.map_dropdown)
-        y += 16 + 28 + 8
+        y += 22 + 28 + 8
 
         # Custom-map loader: file picker for a .txt file outside the
         # bundled presets. Activated on Reset.
