@@ -18,6 +18,7 @@ widgets handle buttons, sliders, checkboxes and the map-preset dropdown.
 """
 from __future__ import annotations
 
+import math
 import os
 from datetime import datetime
 from pathlib import Path
@@ -32,10 +33,20 @@ import pygame  # noqa: E402
 from matplotlib.backends.backend_agg import FigureCanvasAgg  # noqa: E402
 
 from agent_types import AgentType  # noqa: E402
-from analytics import export_live_snapshot  # noqa: E402
+from analytics import export_live_data, export_live_plots  # noqa: E402
 from map_presets import PREDEFINED_CITY_MAPS  # noqa: E402
 from model import EpidemicModel  # noqa: E402
 from states import CellType, HealthState  # noqa: E402
+from time_utils import format_time_ampm  # noqa: E402
+
+
+def _format_step_tick(tick_value: float, step_times: list[float]) -> str:
+    """Format an x-axis tick as ``"step\\ntime"`` (e.g. ``"3\\n10:30am"``).
+    Falls back to the bare integer for ticks outside the recorded range."""
+    step = int(round(tick_value))
+    if 0 <= step < len(step_times):
+        return f"{step}\n{format_time_ampm(step_times[step])}"
+    return f"{step}"
 
 
 # ---------------------------------------------------------------------------
@@ -62,6 +73,23 @@ HEALTH_COLORS = {
     HealthState.INFECTIOUS: (244, 67, 54),
     HealthState.RECOVERED: (158, 158, 158),
 }
+
+# Worst-state ordering used by the "severity" dot-colour mode. A cell takes
+# the colour of the worst health state any of its agents are in - so a single
+# infectious agent makes the whole cell red.
+HEALTH_SEVERITY_ORDER = (
+    HealthState.INFECTIOUS,   # red
+    HealthState.EXPOSED,      # yellow
+    HealthState.SUSCEPTIBLE,  # green
+    HealthState.RECOVERED,    # grey
+)
+
+# Dot-colour render modes for the agent map. The dropdown in the sidebar
+# stores the user's selection by key; the label is what the user reads.
+DOT_COLOR_MODES: list[tuple[str, str]] = [
+    ("heatmap",  "Infection heatmap (per-cell)"),
+    ("severity", "Worst state (any infected -> red)"),
+]
 
 CELL_COLORS = {
     CellType.DEFAULT: (44, 44, 54),       # streets / unused
@@ -187,7 +215,14 @@ class Slider(Widget):
     def draw(self, surface, fonts):
         font = fonts["small"]
         label = font.render(self.label, True, TEXT_DIM)
-        value_text = font.render(self.value_format.format(self.value), True, TEXT)
+        # value_format can be either a format string or a callable taking the
+        # current numeric value and returning the text to display (used for
+        # custom formats like "10:30am").
+        if callable(self.value_format):
+            value_str = self.value_format(self.value)
+        else:
+            value_str = self.value_format.format(self.value)
+        value_text = font.render(value_str, True, TEXT)
         surface.blit(label, (self.rect.x, self.rect.y))
         value_rect = value_text.get_rect(topright=(self.rect.right, self.rect.y))
         surface.blit(value_text, value_rect)
@@ -376,6 +411,29 @@ class PygameVisualizer:
         self.pending_timestep = float(model.timestep)
         self.pending_verbose = bool(model.verbose)
         self.pending_preset_key = model.city_map_preset
+        self.pending_max_transmission_distance = int(
+            getattr(model, "max_transmission_distance", 5)
+        )
+        # Per-agent-type mobility / infection_rate, seeded from whatever
+        # the live model uses (which already includes any overrides passed
+        # to its constructor).
+        model_cfg = getattr(model, "agent_config", None)
+        self.pending_agent_params: dict[str, dict[str, float]] = {}
+        for atype in AgentType:
+            params = model_cfg[atype] if model_cfg else None
+            self.pending_agent_params[atype.value] = {
+                "mobility": float(params.mobility) if params else 0.5,
+                "infection_rate": float(params.infection_rate) if params else 0.2,
+            }
+        # Which agent type the mobility / infection_rate sliders edit.
+        self.selected_agent_type_idx = 0
+
+        # When set, takes precedence over the preset dropdown on the next
+        # Reset (user picked a .txt outside the built-in presets).
+        self.pending_custom_map_path: str | None = None
+
+        # Active dot-colour rendering mode (live - takes effect immediately).
+        self.dot_color_mode: str = DOT_COLOR_MODES[0][0]
 
         # Cached render surfaces
         self._cell_surface: pygame.Surface | None = None
@@ -434,17 +492,18 @@ class PygameVisualizer:
 
     def _init_fonts(self) -> None:
         self.fonts = {
-            "title": pygame.font.SysFont("Segoe UI", 18, bold=True),
-            "subtitle": pygame.font.SysFont("Segoe UI", 14, bold=True),
-            "body": pygame.font.SysFont("Segoe UI", 13),
-            "small": pygame.font.SysFont("Segoe UI", 12),
-            "tiny": pygame.font.SysFont("Segoe UI", 11),
+            "title": pygame.font.SysFont("Segoe UI", 20, bold=True),
+            "subtitle": pygame.font.SysFont("Segoe UI", 16, bold=True),
+            "body": pygame.font.SysFont("Segoe UI", 15),
+            "small": pygame.font.SysFont("Segoe UI", 14),
+            "tiny": pygame.font.SysFont("Segoe UI", 13),
         }
 
     def _invalidate_cached_surfaces(self) -> None:
         self._cell_surface = None
         self._cell_surface_rect = None
         self._plots_dirty = True
+        self._last_heatmap_max = 0
 
     def _build_widgets(self) -> None:
         self.widgets = []
@@ -533,9 +592,9 @@ class PygameVisualizer:
         y += slider_h + 6
         self.widgets.append(Slider(
             (pad, y, width, slider_h),
-            "Start time (h)", 0.0, 23.5, 0.5, self.pending_time_of_day,
+            "Start time", 0.0, 23.5, 0.5, self.pending_time_of_day,
             on_change=lambda v: setattr(self, "pending_time_of_day", float(v)),
-            value_format="{:.1f}",
+            value_format=format_time_ampm,
         ))
         y += slider_h + 6
         self.widgets.append(Slider(
@@ -551,6 +610,70 @@ class PygameVisualizer:
             on_change=lambda v: setattr(self, "pending_verbose", bool(v)),
         ))
         y += 22 + 12
+
+        # --- Transmission & per-agent overrides -----------------------
+        # All knobs in this section take effect on the next Reset.
+        self._section_transmission_y = y
+        y += section_gap
+        self.widgets.append(Slider(
+            (pad, y, width, slider_h),
+            "Max transmission distance (cells)", 1, 15, 1,
+            self.pending_max_transmission_distance,
+            on_change=lambda v: setattr(self, "pending_max_transmission_distance", int(v)),
+            value_format="{:.0f}",
+        ))
+        y += slider_h + 6
+
+        # Dropdown selecting which AgentType the mobility / infection
+        # sliders below refer to. Changing the type re-loads slider values.
+        self._agent_type_keys = [a.value for a in AgentType]
+        type_labels = [a.value.capitalize() for a in AgentType]
+        self.agent_type_dropdown = Dropdown(
+            (pad, y, width, 16 + 28),
+            "Agent type to edit", type_labels, self.selected_agent_type_idx,
+            on_change=self._select_agent_type_for_edit,
+        )
+        self.widgets.append(self.agent_type_dropdown)
+        self.dropdowns.append(self.agent_type_dropdown)
+        y += 16 + 28 + 6
+
+        current_key = self._agent_type_keys[self.selected_agent_type_idx]
+        self.mobility_slider = Slider(
+            (pad, y, width, slider_h),
+            "Mobility", 0.0, 1.0, 0.05,
+            self.pending_agent_params[current_key]["mobility"],
+            on_change=self._on_mobility_change,
+            value_format="{:.2f}",
+        )
+        self.widgets.append(self.mobility_slider)
+        y += slider_h + 6
+        self.infection_rate_slider = Slider(
+            (pad, y, width, slider_h),
+            "Infection rate", 0.0, 1.0, 0.05,
+            self.pending_agent_params[current_key]["infection_rate"],
+            on_change=self._on_infection_rate_change,
+            value_format="{:.2f}",
+        )
+        self.widgets.append(self.infection_rate_slider)
+        y += slider_h + 12
+
+        # --- Display options section ---------------------------------
+        self._section_display_y = y
+        y += section_gap
+        mode_keys = [k for k, _ in DOT_COLOR_MODES]
+        mode_labels = [label for _, label in DOT_COLOR_MODES]
+        try:
+            current_mode_idx = mode_keys.index(self.dot_color_mode)
+        except ValueError:
+            current_mode_idx = 0
+        self.dot_mode_dropdown = Dropdown(
+            (pad, y, width, 16 + 28),
+            "Dot colouring", mode_labels, current_mode_idx,
+            on_change=lambda i: setattr(self, "dot_color_mode", mode_keys[i]),
+        )
+        self.widgets.append(self.dot_mode_dropdown)
+        self.dropdowns.append(self.dot_mode_dropdown)
+        y += 16 + 28 + 12
 
         # --- Map preset section --------------------------------------
         self._section_map_y = y
@@ -568,18 +691,39 @@ class PygameVisualizer:
         )
         self.widgets.append(self.map_dropdown)
         self.dropdowns.append(self.map_dropdown)
-        y += 16 + 28 + 12
+        y += 16 + 28 + 8
+
+        # Custom-map loader: file picker for a .txt file outside the
+        # bundled presets. Activated on Reset.
+        self.widgets.append(Button(
+            (pad, y, width, button_h),
+            "Load custom map (.txt)...",
+            self._do_load_custom_map,
+            color=(80, 100, 140),
+            hover_color=(105, 130, 175),
+            pressed_color=(60, 80, 115),
+        ))
+        y += button_h + 12
 
         # --- Export section ------------------------------------------
         self._section_export_y = y
         y += section_gap
         self.widgets.append(Button(
             (pad, y, width, button_h),
-            "Generate visualization",
-            self._do_export,
+            "Export plots (PNG x4)",
+            self._do_export_plots,
             color=(95, 155, 90),
             hover_color=(120, 185, 110),
             pressed_color=(70, 125, 70),
+        ))
+        y += button_h + 6
+        self.widgets.append(Button(
+            (pad, y, width, button_h),
+            "Export data (CSV/JSON)",
+            self._do_export_data,
+            color=(80, 130, 165),
+            hover_color=(105, 155, 195),
+            pressed_color=(60, 100, 130),
         ))
         y += button_h + 8
         self._status_area_y = y
@@ -625,10 +769,19 @@ class PygameVisualizer:
         self.playing = False
         if self.play_button is not None:
             self.play_button.label = "Play"
+
+        # A custom map wins over the dropdown preset when one is queued.
+        if self.pending_custom_map_path:
+            target_path = self.pending_custom_map_path
+            target_preset = None
+        else:
+            target_path = self.model.city_map_path
+            target_preset = self.pending_preset_key
+
         try:
             self.model = EpidemicModel(
-                city_map_path=self.model.city_map_path,
-                city_map_preset=self.pending_preset_key,
+                city_map_path=target_path,
+                city_map_preset=target_preset,
                 population=int(self.pending_population),
                 avg_household_size=int(self.pending_avg_household_size),
                 avg_family_size=int(self.pending_avg_family_size),
@@ -636,6 +789,8 @@ class PygameVisualizer:
                 time_of_day=float(self.pending_time_of_day),
                 timestep=float(self.pending_timestep),
                 verbose=bool(self.pending_verbose),
+                max_transmission_distance=int(self.pending_max_transmission_distance),
+                agent_overrides=dict(self.pending_agent_params),
             )
             self._set_status(
                 f"Model reset with population={int(self.pending_population)}",
@@ -646,33 +801,156 @@ class PygameVisualizer:
         self._invalidate_cached_surfaces()
         self._steps_since_render = 0
 
+    def _select_agent_type_for_edit(self, idx: int):
+        """Update the mobility / infection-rate sliders to reflect the
+        pending values for the newly selected agent type."""
+        self.selected_agent_type_idx = int(idx)
+        key = self._agent_type_keys[self.selected_agent_type_idx]
+        params = self.pending_agent_params[key]
+        self.mobility_slider.value = float(params["mobility"])
+        self.infection_rate_slider.value = float(params["infection_rate"])
+
+    def _on_mobility_change(self, value: float):
+        key = self._agent_type_keys[self.selected_agent_type_idx]
+        self.pending_agent_params[key]["mobility"] = float(value)
+
+    def _on_infection_rate_change(self, value: float):
+        key = self._agent_type_keys[self.selected_agent_type_idx]
+        self.pending_agent_params[key]["infection_rate"] = float(value)
+
     def _select_preset(self, preset_key: str):
         self.pending_preset_key = preset_key
+        # Choosing a preset clears any queued custom-map override - users
+        # don't expect a Reset to silently keep loading their custom file
+        # after they pick a preset from the dropdown.
+        self.pending_custom_map_path = None
         label = PREDEFINED_CITY_MAPS[preset_key]["label"]
         self._set_status(
             f"Preset '{label}' selected - click Reset to apply",
             is_error=False,
         )
 
-    def _do_export(self):
+    def _do_load_custom_map(self):
+        """Open a native file picker and queue a custom .txt map for the
+        next Reset. Validates the file first so we fail with a readable
+        message instead of crashing inside the model loader."""
         try:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            target = Path("output/live_export") / f"step_{self.model.current_step:04d}_{timestamp}"
-            artifacts = export_live_snapshot(
-                self.model,
-                str(target),
-                config={
-                    "cityMapPath": self.model.city_map_path,
-                    "cityMapPreset": self.model.city_map_preset,
-                    "mapName": self.model.map_name,
-                },
+            import tkinter as tk
+            from tkinter import filedialog
+        except ImportError as exc:
+            self._set_status(
+                f"Cannot open file dialog (tkinter missing): {exc}",
+                is_error=True,
+            )
+            return
+
+        # Tk root must exist for the dialog. Hide it; topmost stops it being
+        # eaten by the pygame window on Windows.
+        root = tk.Tk()
+        try:
+            root.withdraw()
+            try:
+                root.attributes("-topmost", True)
+            except tk.TclError:
+                pass
+            path = filedialog.askopenfilename(
+                title="Select custom city map",
+                filetypes=[
+                    ("Map text files", "*.txt"),
+                    ("All files", "*.*"),
+                ],
+            )
+        finally:
+            root.destroy()
+
+        if not path:
+            return  # user cancelled
+
+        try:
+            info = self._validate_custom_map_file(path)
+        except Exception as exc:
+            self._set_status(f"Map invalid: {exc}", is_error=True)
+            return
+
+        self.pending_custom_map_path = path
+        self.pending_preset_key = None
+        self._set_status(
+            f"Custom map queued: {Path(path).name} "
+            f"({info['width']}x{info['height']}) - click Reset to apply",
+            is_error=False,
+        )
+
+    @staticmethod
+    def _validate_custom_map_file(path: str) -> dict:
+        """Sanity-check a .txt map: non-empty, rectangular, characters in 0-5.
+
+        Returns ``{"width": int, "height": int}`` on success or raises
+        ``ValueError`` with a human-readable message describing the issue.
+        """
+        valid_chars = {"0", "1", "2", "3", "4", "5"}
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                raw_lines = [line.rstrip("\r\n") for line in f]
+        except OSError as exc:
+            raise ValueError(f"could not open file: {exc}") from exc
+
+        rows = [ln for ln in raw_lines if ln.strip()]
+        if not rows:
+            raise ValueError("file is empty")
+
+        width = len(rows[0])
+        for idx, row in enumerate(rows, start=1):
+            if len(row) != width:
+                raise ValueError(
+                    f"row {idx} has length {len(row)}, expected {width}"
+                )
+            bad = sorted(set(row) - valid_chars)
+            if bad:
+                raise ValueError(
+                    f"row {idx} has invalid characters {bad} (allowed: 0-5)"
+                )
+        return {"width": width, "height": len(rows)}
+
+    def _live_export_config(self) -> dict:
+        return {
+            "cityMapPath": self.model.city_map_path,
+            "cityMapPreset": self.model.city_map_preset,
+            "mapName": self.model.map_name,
+        }
+
+    def _live_export_target(self, prefix: str) -> Path:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        return (
+            Path("output/live_export")
+            / f"{prefix}_step_{self.model.current_step:04d}_{timestamp}"
+        )
+
+    def _do_export_plots(self):
+        try:
+            target = self._live_export_target("plots")
+            artifacts = export_live_plots(
+                self.model, str(target), config=self._live_export_config(),
             )
             self._set_status(
-                f"Exported to {os.path.basename(artifacts['output_dir'])}",
+                f"Plots ({len(artifacts['plots'])}) saved to "
+                f"{os.path.basename(artifacts['output_dir'])}",
                 is_error=False,
             )
         except Exception as exc:
-            self._set_status(f"Export failed: {exc}", is_error=True)
+            self._set_status(f"Plot export failed: {exc}", is_error=True)
+
+    def _do_export_data(self):
+        try:
+            target = self._live_export_target("data")
+            artifacts = export_live_data(
+                self.model, str(target), config=self._live_export_config(),
+            )
+            self._set_status(
+                f"Data files saved to {os.path.basename(artifacts['output_dir'])}",
+                is_error=False,
+            )
+        except Exception as exc:
+            self._set_status(f"Data export failed: {exc}", is_error=True)
 
     def _set_status(self, text: str, *, is_error: bool):
         self._status_text = text
@@ -717,6 +995,8 @@ class PygameVisualizer:
 
         self._draw_section_header("Controls", self._section_controls_y)
         self._draw_section_header("Model parameters", self._section_params_y)
+        self._draw_section_header("Transmission & agents", self._section_transmission_y)
+        self._draw_section_header("Display", self._section_display_y)
         self._draw_section_header("Map preset", self._section_map_y)
         self._draw_section_header("Export", self._section_export_y)
 
@@ -814,8 +1094,8 @@ class PygameVisualizer:
     def _draw_map(self, rect: pygame.Rect):
         self._draw_panel(rect, title=f"Agent map ({self.model.map_name})")
         # Reserve room at the top for the panel title and at the bottom for
-        # the two-row legend.
-        legend_reserve = 36
+        # the legend (dot-mode row + 2 cell-type rows = 3 lines @ small font).
+        legend_reserve = 70
         inner = pygame.Rect(
             rect.x + 8,
             rect.y + 36,
@@ -843,7 +1123,7 @@ class PygameVisualizer:
 
         self.screen.blit(self._cell_surface, (offset_x, offset_y))
 
-        # Draw agents on top.
+        cell_colors = self._compute_cell_dot_colors()
         radius = max(2, min(cell_size // 2, self.agent_radius + cell_size // 12))
         for agent in self.model.agents:
             pos = agent.pos
@@ -852,11 +1132,88 @@ class PygameVisualizer:
             x, y = pos
             cx = offset_x + x * cell_size + cell_size // 2
             cy = offset_y + y * cell_size + cell_size // 2
-            color = HEALTH_COLORS.get(agent.health_state, (255, 255, 255))
+            color = cell_colors.get(pos, HEALTH_COLORS[HealthState.SUSCEPTIBLE])
             pygame.draw.circle(self.screen, color, (cx, cy), radius)
 
         self._draw_map_legend(rect)
         self._draw_time_overlay(rect)
+
+    def _compute_cell_dot_colors(self) -> dict[tuple[int, int], tuple[int, int, int]]:
+        """Build a per-cell dot colour according to ``self.dot_color_mode``.
+
+        Two modes are supported:
+
+        * ``heatmap``  - all dots in a cell share a colour derived from the
+          number of INFECTIOUS agents in that cell. Green (0) -> yellow (1) ->
+          red (max-on-this-frame), with a log ramp so outlier hotspots don't
+          flatten the rest of the gradient.
+        * ``severity`` - all dots in a cell share the colour of the WORST
+          health state present (INFECTIOUS > EXPOSED > SUSCEPTIBLE > RECOVERED).
+          Even one infectious agent paints the whole cell red.
+        """
+        # Tally agents per cell broken down by state. We need both for the
+        # severity mode (worst state present) and the heatmap mode
+        # (infectious-count for log-scaling).
+        per_cell_states: dict[tuple[int, int], set[HealthState]] = {}
+        infection_counts: dict[tuple[int, int], int] = {}
+        for agent in self.model.agents:
+            pos = agent.pos
+            if pos is None:
+                continue
+            per_cell_states.setdefault(pos, set()).add(agent.health_state)
+            if agent.health_state == HealthState.INFECTIOUS:
+                infection_counts[pos] = infection_counts.get(pos, 0) + 1
+
+        max_count = max(infection_counts.values(), default=0)
+        self._last_heatmap_max = max_count
+
+        colors: dict[tuple[int, int], tuple[int, int, int]] = {}
+        if self.dot_color_mode == "severity":
+            for pos, states in per_cell_states.items():
+                for state in HEALTH_SEVERITY_ORDER:
+                    if state in states:
+                        colors[pos] = HEALTH_COLORS[state]
+                        break
+        else:  # heatmap (default)
+            for pos in per_cell_states:
+                colors[pos] = self._heatmap_color(
+                    infection_counts.get(pos, 0), max_count,
+                )
+        return colors
+
+    @staticmethod
+    def _heatmap_color(count: int, max_count: int) -> tuple[int, int, int]:
+        """Green for cells with **zero** infections, then a logarithmic
+        yellow -> red ramp from 1 up to ``max_count``.
+
+        Linear auto-scaling against the per-frame maximum looks fine for
+        smooth distributions, but real outbreaks routinely have one extreme
+        cell (a packed workplace / university) with dozens of infectious
+        agents while the rest of the map sits at 1-3. A linear ramp would
+        map those typical cells to ~0% of the gradient (still green), hiding
+        the fact that the disease is everywhere. Treating zero as a special
+        "safe" value and using log scaling for the rest fixes that.
+        """
+        if count <= 0:
+            return 60, 200, 80  # safe green
+        # max_count is guaranteed >= count here, but defend against the
+        # degenerate "single hot cell" case where max_count == 1.
+        denom = math.log(max(max_count, 2))
+        t = math.log(count) / denom if denom > 0 else 1.0
+        t = max(0.0, min(1.0, t))
+        if t < 0.5:
+            # yellow -> orange
+            s = t * 2
+            r = int(240 + s * (245 - 240))
+            g = int(220 + s * (140 - 220))
+            b = int(60 + s * (50 - 60))
+        else:
+            # orange -> deep red
+            s = (t - 0.5) * 2
+            r = int(245 + s * (220 - 245))
+            g = int(140 + s * (40 - 140))
+            b = int(50 + s * (45 - 50))
+        return r, g, b
 
     def _build_cell_surface(self, grid_w: int, grid_h: int, cell_size: int) -> pygame.Surface:
         surface = pygame.Surface((grid_w * cell_size, grid_h * cell_size))
@@ -882,15 +1239,10 @@ class PygameVisualizer:
         return surface
 
     def _draw_map_legend(self, rect: pygame.Rect):
-        font = self.fonts["tiny"]
-        # Two rows so it never overflows the panel width
-        rows: list[list[tuple[str, tuple[int, int, int]]]] = [
-            [
-                ("Susceptible", HEALTH_COLORS[HealthState.SUSCEPTIBLE]),
-                ("Exposed", HEALTH_COLORS[HealthState.EXPOSED]),
-                ("Infectious", HEALTH_COLORS[HealthState.INFECTIOUS]),
-                ("Recovered", HEALTH_COLORS[HealthState.RECOVERED]),
-            ],
+        font = self.fonts["small"]
+        # Top row: dot-colour legend (gradient for heatmap mode, swatches
+        # for severity mode). Following rows: cell-type swatches.
+        cell_rows: list[list[tuple[str, tuple[int, int, int]]]] = [
             [
                 ("Street / open space (default)", CELL_COLORS[CellType.DEFAULT]),
                 ("Household", CELL_COLORS[CellType.HOUSEHOLD]),
@@ -902,25 +1254,82 @@ class PygameVisualizer:
                 ("School", CELL_COLORS[CellType.SCHOOL]),
             ],
         ]
-        line_h = 14
+        line_h = 19
+        total_rows = 1 + len(cell_rows)  # one dot-mode row + cell-type rows
+        base_y = rect.bottom - line_h * total_rows - 4
         max_x = rect.right - 8
-        base_y = rect.bottom - line_h * len(rows) - 4
-        for row_idx, items in enumerate(rows):
+
+        if self.dot_color_mode == "severity":
+            self._draw_severity_legend_row(font, rect.x + 12, base_y, max_x)
+        else:
+            self._draw_heatmap_legend_row(font, rect.x + 12, base_y, max_x)
+
+        # --- Cell-type swatch rows ---
+        sw = 12  # swatch side
+        for row_idx, items in enumerate(cell_rows, start=1):
             x = rect.x + 12
             y = base_y + row_idx * line_h
             for label, color in items:
                 text = font.render(label, True, TEXT_DIM)
-                box = pygame.Rect(x, y + 2, 10, 10)
-                # If the next item would overflow, stop drawing this row
-                if box.x + 10 + 4 + text.get_width() > max_x:
+                box = pygame.Rect(x, y + 3, sw, sw)
+                if box.x + sw + 4 + text.get_width() > max_x:
                     break
                 pygame.draw.rect(self.screen, color, box)
-                self.screen.blit(text, (box.right + 4, y))
-                x = box.right + 4 + text.get_width() + 12
+                self.screen.blit(text, (box.right + 5, y))
+                x = box.right + 5 + text.get_width() + 12
+
+    def _draw_heatmap_legend_row(self, font, x0: int, y0: int, max_x: int) -> None:
+        max_count = getattr(self, "_last_heatmap_max", 0)
+        left = font.render(
+            "Dot colour - infections in same cell:  0", True, TEXT_DIM,
+        )
+        right = font.render(
+            f"  {max(max_count, 1)}+  (auto-scaled)", True, TEXT_DIM,
+        )
+        self.screen.blit(left, (x0, y0))
+        bar_x = x0 + left.get_width() + 6
+        bar_y = y0 + 3
+        bar_w = 120
+        bar_h = 12
+        # Sample the same colour function used for the dots so the bar reads
+        # exactly like the map.
+        legend_max = max(max_count, 1)
+        for i in range(bar_w):
+            sampled = (i / (bar_w - 1)) * legend_max if bar_w > 1 else 0
+            count = int(round(sampled))
+            color = self._heatmap_color(count, legend_max)
+            pygame.draw.rect(self.screen, color,
+                             pygame.Rect(bar_x + i, bar_y, 1, bar_h))
+        self.screen.blit(right, (bar_x + bar_w, y0))
+
+    def _draw_severity_legend_row(self, font, x0: int, y0: int, max_x: int) -> None:
+        header = font.render(
+            "Dot colour - worst state in cell:", True, TEXT_DIM,
+        )
+        self.screen.blit(header, (x0, y0))
+        x = x0 + header.get_width() + 10
+        items = [
+            ("Infectious", HEALTH_COLORS[HealthState.INFECTIOUS]),
+            ("Exposed", HEALTH_COLORS[HealthState.EXPOSED]),
+            ("Susceptible", HEALTH_COLORS[HealthState.SUSCEPTIBLE]),
+            ("Recovered", HEALTH_COLORS[HealthState.RECOVERED]),
+        ]
+        sw = 12
+        for label, color in items:
+            text = font.render(label, True, TEXT_DIM)
+            box = pygame.Rect(x, y0 + 3, sw, sw)
+            if box.x + sw + 5 + text.get_width() > max_x:
+                break
+            pygame.draw.rect(self.screen, color, box)
+            self.screen.blit(text, (box.right + 5, y0))
+            x = box.right + 5 + text.get_width() + 12
 
     def _draw_time_overlay(self, rect: pygame.Rect):
         font = self.fonts["small"]
-        text = f"Step {self.model.current_step}  |  Time {self.model.time_of_day:.2f}h"
+        text = (
+            f"Step {self.model.current_step}  |  "
+            f"Time {format_time_ampm(self.model.time_of_day, with_minutes=True)}"
+        )
         rendered = font.render(text, True, TEXT)
         bg = pygame.Surface((rendered.get_width() + 14, rendered.get_height() + 6),
                             pygame.SRCALPHA)
@@ -942,6 +1351,7 @@ class PygameVisualizer:
         population = max(stats["population"], 1)
         font_body = self.fonts["body"]
         font_small = self.fonts["small"]
+        font_subtitle = self.fonts["subtitle"]
         x = rect.x + 14
         y = rect.y + 36
         col_w = (rect.width - 28) // 2
@@ -949,23 +1359,30 @@ class PygameVisualizer:
 
         def line(surface_x: int, surface_y: int, label: str, value: str,
                  color: tuple = TEXT, label_color: tuple = TEXT_DIM):
-            lbl = font_small.render(label, True, label_color)
+            lbl = font_body.render(label, True, label_color)
             self.screen.blit(lbl, (surface_x, surface_y))
-            val = font_body.render(value, True, color)
-            self.screen.blit(val, (surface_x, surface_y + 14))
+            val = font_subtitle.render(value, True, color)
+            self.screen.blit(val, (surface_x, surface_y + 18))
 
-        # Two-column top stats
+        # Two-column top stats. Each entry is a [label, value] block whose
+        # total height is computed from the actual font sizes so the rows
+        # never overlap regardless of UI scaling.
+        stat_block_h = 18 + font_subtitle.get_linesize() + 6
+
         line(x, y, "Step", str(stats["step"]))
-        line(x + col_w, y, "Time of day", f"{stats['time_of_day']:.2f} h")
-        y += 36
+        line(
+            x + col_w, y, "Time of day",
+            format_time_ampm(stats["time_of_day"], with_minutes=True),
+        )
+        y += stat_block_h
         line(x, y, "Population", _format_int(stats["population"]))
         line(x + col_w, y, "New exposures (last step)", _format_int(stats["new_exposures"]))
-        y += 36
+        y += stat_block_h
         line(x, y, "Peak infectious",
              f"{_format_int(summary['peak_infectious'])}  (step {summary['peak_infectious_step']})")
         line(x + col_w, y, "Cumulative infected",
              f"{_format_int(stats['cumulative_infected'])}  ({stats['cumulative_ratio']:.1%})")
-        y += 36
+        y += stat_block_h
 
         # Divider
         pygame.draw.line(self.screen, BORDER, (rect.x + 14, y),
@@ -979,10 +1396,10 @@ class PygameVisualizer:
             ("Infectious", "infectious", HEALTH_COLORS[HealthState.INFECTIOUS]),
             ("Recovered", "recovered", HEALTH_COLORS[HealthState.RECOVERED]),
         ]
-        bar_label_w = 90
-        bar_value_w = 110
+        bar_label_w = 100
+        bar_value_w = 130
         bar_area_w = rect.width - 28 - bar_label_w - bar_value_w
-        bar_h = 16
+        bar_h = 18
         for label, key, color in seir_items:
             count = stats[key]
             ratio = count / population
@@ -995,7 +1412,7 @@ class PygameVisualizer:
             fill.width = int(track.width * ratio)
             if fill.width > 0:
                 pygame.draw.rect(self.screen, color, fill, border_radius=3)
-            value_text = font_small.render(
+            value_text = font_body.render(
                 f"{_format_int(count)} ({ratio:.1%})", True, TEXT,
             )
             self.screen.blit(value_text, (track.right + 10, y + 1))
@@ -1006,10 +1423,11 @@ class PygameVisualizer:
                          (rect.right - 14, y), 1)
         y += 10
 
-        # Infectious by agent type
-        header = font_body.render("Infectious by agent type", True, TEXT)
+        # Infectious by agent type - larger subtitle header + body-sized list.
+        header = font_subtitle.render("Infectious by agent type", True, TEXT)
         self.screen.blit(header, (x, y))
-        y += line_h + 2
+        y += font_subtitle.get_linesize() + 4
+        list_line_h = font_body.get_linesize() + 2
         for agent_type in AgentType:
             counts = by_type.get(agent_type.value, {"infectious": 0,
                                                     "susceptible": 0,
@@ -1018,13 +1436,13 @@ class PygameVisualizer:
             total = sum(counts.values())
             inf = counts["infectious"]
             ratio = (inf / total) if total else 0.0
-            text = font_small.render(
+            text = font_body.render(
                 f"- {agent_type.value.capitalize()}: "
                 f"{_format_int(inf)} infectious / {_format_int(total)}  ({ratio:.1%})",
                 True, TEXT_DIM,
             )
             self.screen.blit(text, (x, y))
-            y += line_h
+            y += list_line_h
             if y > rect.bottom - 16:
                 break
 
@@ -1064,6 +1482,8 @@ class PygameVisualizer:
         steps = list(range(len(next(iter(data.values()), []))))
         if not steps:
             return
+        # Per-step clock so the x-axis can show "step | time-of-day".
+        step_times = [row["time_of_day"] for row in self.model.metrics_history]
 
         configs = [
             {
@@ -1109,9 +1529,12 @@ class PygameVisualizer:
                 ax.plot(steps, data[key], label=key.replace("Infectious_", ""),
                         color=color, linewidth=1.5)
             ax.set_title(cfg["title"], color="#e6e6eb", fontsize=10)
-            ax.set_xlabel("Step", color="#9999a3", fontsize=8)
+            ax.set_xlabel("Step (time of day)", color="#9999a3", fontsize=8)
             ax.set_ylabel(cfg["ylabel"], color="#9999a3", fontsize=8)
             ax.tick_params(colors="#9999a3", labelsize=7)
+            ax.xaxis.set_major_formatter(
+                plt.FuncFormatter(lambda v, _: _format_step_tick(v, step_times))
+            )
             for spine in ax.spines.values():
                 spine.set_color("#55555f")
             ax.grid(alpha=0.2, color="#888892")

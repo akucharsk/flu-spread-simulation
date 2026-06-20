@@ -4,7 +4,14 @@ from mesa.space import PropertyLayer
 import numpy as np
 
 from agents import PersonAgent
-from agent_types import AGENT_CONFIG, AgentType, DEFAULT_AVG_FRIEND_GROUP_SIZE, DEFAULT_AVG_FAMILY_SIZE
+from agent_types import (
+    AGENT_CONFIG,
+    AgentType,
+    DEFAULT_AVG_FRIEND_GROUP_SIZE,
+    DEFAULT_AVG_FAMILY_SIZE,
+    MAX_TRANSMISSION_DISTANCE as _DEFAULT_MAX_DISTANCE,
+    build_agent_config,
+)
 import random
 
 from city_utils import build_city_grid, load_city_map
@@ -33,6 +40,8 @@ class EpidemicModel(Model):
         time_of_day=10, # 10:00
         timestep=0.5, # hour
         verbose=False,
+        max_transmission_distance=None,
+        agent_overrides=None,
     ):
         super().__init__()
         self.location_data = {}
@@ -46,6 +55,18 @@ class EpidemicModel(Model):
         self.avg_household_size = avg_household_size
         self.avg_family_size = max(1, int(avg_family_size))
         self.avg_friend_group_size = max(1, int(avg_friend_group_size))
+
+        # Transmission radius (in cells). None -> use module default.
+        self.max_transmission_distance = (
+            int(max_transmission_distance)
+            if max_transmission_distance is not None
+            else _DEFAULT_MAX_DISTANCE
+        )
+        # Per-type mobility / infection_rate overrides applied on top of
+        # AGENT_CONFIG. ``self.agent_config`` is the source of truth used
+        # when spawning agents.
+        self.agent_overrides = agent_overrides or {}
+        self.agent_config = build_agent_config(self.agent_overrides)
 
         self.running = True
         self.current_step = 0
@@ -75,8 +96,8 @@ class EpidemicModel(Model):
         self._create_property_layers()
         for _ in range(population):
             agent_type = random.choice(list(AgentType))
-            params = AGENT_CONFIG[agent_type]
-            
+            params = self.agent_config[agent_type]
+
             agent = PersonAgent(
                 self,
                 agent_type=agent_type,
@@ -136,9 +157,10 @@ class EpidemicModel(Model):
 
     def get_metrics_snapshot(self):
         counts = self.get_health_counts()
+        per_type = self.get_health_counts_by_type()
         population = len(self.agents)
         cumulative_infected = population - counts["susceptible"]
-        return {
+        snapshot = {
             "step": self.current_step,
             "time_of_day": round(self.time_of_day, 4),
             "susceptible": counts["susceptible"],
@@ -151,6 +173,12 @@ class EpidemicModel(Model):
             "cumulative_ratio": cumulative_infected / population if population else 0.0,
             "new_exposures": self.new_exposures_step,
         }
+        # Per-agent-type breakdown so post-hoc analyses can ask 'which group
+        # carries the peak?' without re-running the simulation.
+        for type_name, buckets in per_type.items():
+            for state, n in buckets.items():
+                snapshot[f"{state}_{type_name}"] = n
+        return snapshot
 
     def record_metrics(self):
         self.metrics_history.append(self.get_metrics_snapshot())
@@ -176,15 +204,45 @@ class EpidemicModel(Model):
     def get_summary_metrics(self):
         peak = max(self.metrics_history, key=lambda item: item["infectious"])
         final = self.metrics_history[-1]
+        population = len(self.agents)
+        total_ever_infected = population - final["susceptible"]
+
+        # Aggregates that are useful for post-hoc comparisons but cheap to
+        # compute here from metrics_history.
+        max_new_exposures = max(
+            (row.get("new_exposures", 0) for row in self.metrics_history),
+            default=0,
+        )
+        infectious_steps = sum(
+            1 for row in self.metrics_history if row.get("infectious", 0) > 0
+        )
+
+        attack_rate = total_ever_infected / population if population else 0.0
+        # Time-to-half-attack: first step at which 50% of the *eventually*
+        # infected population has been infected.
+        half_target = total_ever_infected / 2
+        time_to_half_attack = None
+        running_total = 0
+        for row in self.metrics_history:
+            running_total = population - row["susceptible"]
+            if running_total >= half_target and half_target > 0:
+                time_to_half_attack = row["step"]
+                break
+
         return {
             "steps_executed": self.current_step,
             "peak_infectious": peak["infectious"],
             "peak_infectious_step": peak["step"],
+            "peak_infectious_time": peak["time_of_day"],
+            "max_new_exposures_per_step": max_new_exposures,
+            "infectious_steps": infectious_steps,
+            "attack_rate": round(attack_rate, 6),
+            "time_to_half_attack_step": time_to_half_attack,
             "final_susceptible": final["susceptible"],
             "final_exposed": final["exposed"],
             "final_infectious": final["infectious"],
             "final_recovered": final["recovered"],
-            "total_ever_infected": len(self.agents) - final["susceptible"],
+            "total_ever_infected": total_ever_infected,
         }
         
     def _create_property_layers(self):

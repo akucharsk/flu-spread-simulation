@@ -3,12 +3,21 @@ from states import CellType, HealthState
 from agent_types import (
     FAMILY_INTERACTION_MULTIPLIER,
     FRIEND_INTERACTION_MULTIPLIER,
-    MAX_TRANSMISSION_DISTANCE,
+    MAX_TRANSMISSION_DISTANCE as _DEFAULT_MAX_DISTANCE,
     AgentType,
     AgentWorkTime
 )
 import random
 import math
+
+
+def _resolve_max_distance(model) -> int:
+    """Read the per-model transmission radius, falling back to the constant.
+
+    Going through the model lets the GUI / CLI tweak the radius per run
+    without re-importing the module.
+    """
+    return int(getattr(model, "max_transmission_distance", _DEFAULT_MAX_DISTANCE))
 
 class PersonAgent(Agent):
 
@@ -115,11 +124,12 @@ class PersonAgent(Agent):
         Uses linear decay: probability decreases linearly with distance.
         Family relation overrides friend relation if both are true.
         """
-        if distance > MAX_TRANSMISSION_DISTANCE:
+        max_distance = _resolve_max_distance(self.model)
+        if distance > max_distance:
             return 0.0
 
-        # Linear decay: 1.0 at distance 0, 0.0 at MAX_TRANSMISSION_DISTANCE
-        base_probability = max(0.0, 1.0 - (distance / MAX_TRANSMISSION_DISTANCE))
+        # Linear decay: 1.0 at distance 0, 0.0 at max_distance.
+        base_probability = max(0.0, 1.0 - (distance / max_distance))
 
         if is_family:
             base_probability = min(1.0, base_probability * FAMILY_INTERACTION_MULTIPLIER)
@@ -198,7 +208,7 @@ class PersonAgent(Agent):
         """
         Spread disease through spatial interactions within transmission range.
 
-        A single sweep over all agents in the radius-MAX_TRANSMISSION_DISTANCE
+        A single sweep over all agents in the radius-``max_transmission_distance``
         Moore neighbourhood (centre cell included). The per-pair multiplier is
         decided from static-network IDs:
           - same family_id   -> family   (2.0x)
@@ -214,7 +224,7 @@ class PersonAgent(Agent):
             self.pos,
             moore=True,
             include_center=True,
-            radius=MAX_TRANSMISSION_DISTANCE,
+            radius=_resolve_max_distance(self.model),
         )
         for cell_pos in neighborhood:
             for agent in self.model.grid.get_cell_list_contents([cell_pos]):
